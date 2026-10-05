@@ -1,0 +1,17 @@
+.DS_Store
+
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Generated output and dependencies
+*.log
+.cache/
+.venv/
+__pycache__/
+*.py[cod]
+node_modules/
+target/
+dist/
