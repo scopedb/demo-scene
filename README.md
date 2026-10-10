@@ -6,9 +6,13 @@ Each demo follows a concrete question from incoming data to a useful answer. Sce
 
 ## Demos
 
-The first demos are being planned. This catalog will grow as runnable scenes are added.
+No runnable demos have been published yet. This catalog will grow as scenes are implemented and verified.
 
-Each catalog entry should link to the scene and describe the question it answers, the ScopeDB capabilities it demonstrates, and its prerequisites. Group entries by use case when there are enough scenes to make navigation easier.
+## Proposals
+
+| Scene | Focus | Status |
+| --- | --- | --- |
+| [Bluesky events](bluesky-events/README.md) | Discover and query different event shapes as the ingestion scope grows | Design proposal |
 
 ## Run a demo
 
