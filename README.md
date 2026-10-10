@@ -6,17 +6,13 @@ Each demo follows a concrete question from incoming data to a useful answer. Sce
 
 ## Demos
 
-No runnable demos have been published yet. This catalog will grow as scenes are implemented and verified.
-
-## Proposals
-
-| Scene | Focus | Status |
+| Scene | What you will do | Prerequisites |
 | --- | --- | --- |
-| [Bluesky events](bluesky-events/README.md) | Discover and query different event shapes as the ingestion scope grows | Design proposal |
+| [Bluesky events](bluesky-events/README.md) | Capture public events, discover their fields, and query posts, likes, reposts, and follows in one table | ScopeDB Cloud account, Go 1.24+, Git |
 
 ## Run a demo
 
-Open a scene's README and follow its instructions. It lists the required ScopeDB connection, tools, tested versions, and any additional services. Each walkthrough includes expected results and cleanup steps.
+Open a scene's README and follow its instructions. It lists the required ScopeDB connection, tools, tested versions, and any additional services. Each walkthrough includes expected results and ways to keep exploring with your data.
 
 Keep credentials in local environment variables or an ignored `.env` file. Committed `.env.example` files contain placeholders only.
 
@@ -25,14 +21,14 @@ Keep credentials in local environment variables or an ignored `.env` file. Commi
 ```text
 README.md             Demo catalog and entry point
 CONTRIBUTING.md       Guidelines for adding a scene
-_template/README.md   Walkthrough template for new scenes
+bluesky-events/       Public event capture and a Console walkthrough
 ```
 
 Add each scene directly under the repository root using a descriptive directory name. Keep scene-specific code, queries, configuration, and assets together so the scene can be run independently.
 
 ## Add a demo
 
-Start with the [scene template](_template/README.md) and follow the [contribution guide](CONTRIBUTING.md).
+Follow the [contribution guide](CONTRIBUTING.md). Write the walkthrough for someone running the demo for the first time, with working commands and visible results at each step.
 
 ## Resources
 

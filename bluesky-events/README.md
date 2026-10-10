@@ -1,259 +1,308 @@
-# Bluesky Events: Discover Structure as Data Arrives
+# Explore Bluesky events with ScopeDB
 
-Status: Design proposal. The collector, setup, and walkthrough have not been implemented. The source connectivity checks below have been performed; ingestion and queries against ScopeDB remain unverified.
+What fields arrive in a real event stream, and how do you query them when different events have different shapes?
 
-## Demonstration goal
+In this walkthrough, you will capture a short sample of public Bluesky activity, load posts into ScopeDB, and then add likes, reposts, and follows to the same table. You will discover their fields, query nested values, and repeat an import without double-counting events. The event payload stays in an `object` column throughout.
 
-Start with live Bluesky posts, discover their structure in ScopeDB, and then add likes, reposts, and follows to the same table. The audience should see new event shapes become queryable while the table definition, ingestion transformation, and existing post queries continue to work.
+Allow about 15–20 minutes after account setup. The collector runs locally; you will run the queries in ScopeDB Console.
 
-The opening question is: **What is happening in this slice of Bluesky activity, and what can we learn without defining every payload field in advance?**
+## 1. Prepare your account and tools
 
-Bluesky defines its record types through Lexicons. This scene demonstrates expanding the set of structures observed by the database; it does not depend on an upstream protocol change happening during the presentation. A particularly useful example is `record.subject`: likes and reposts use an object reference, while follows use a DID string.
+You need:
 
-- Audience: developers evaluating flexible event ingestion and exploratory analytics.
-- Target presentation length: 8–10 minutes.
-- First implementation: one Go collector, ScopeQL files, and ScopeDB Console.
-- Setup estimate: to be established by a fresh-checkout run before publishing the runnable demo.
+- A ScopeDB Cloud account and a workspace. [Sign up](https://console.scopedb.cloud/?signup) if you do not have an account, or [sign in](https://console.scopedb.cloud/) with your existing account. Complete the email verification and workspace setup shown by Console before continuing.
+- [Go 1.24 or later](https://go.dev/doc/install) and Git.
+- A terminal running Bash or Zsh on macOS or Linux; Windows users can use WSL.
+- Network access to ScopeDB Cloud and Bluesky's public Jetstream service. Reading the live stream does not require a Bluesky account or API key.
 
-## Source selection and evidence
+The default capture contains at most 5,000 events. You will import it once, then import another copy in the replay step. Retrying a load can also add repeated rows to the raw table. Your workspace's normal ingestion, storage, and query usage applies. Nothing continues running after the commands finish.
 
-| Source | Access and recovery | Decision |
-| --- | --- | --- |
-| [Bluesky Jetstream v2](https://bsky.network/docs/jetstream/) | JSON over WebSocket, unauthenticated live subscriptions, server-side collection filters, and bounded cursor-based recovery | Primary source: several event types, nested records, optional fields, arrays, and record deletions |
-| [Wikimedia EventStreams](https://wikitech.wikimedia.org/wiki/Event_Platform/EventStreams_HTTP_Service) | JSON over SSE, reconnect through `Last-Event-ID`, and timestamp-based consumption within the available history | Alternative source if a different story is needed; implementing a second adapter is outside the first milestone |
-| [GitHub public events](https://docs.github.com/en/rest/activity/events) | HTTP polling; documented event latency ranges from 30 seconds to 6 hours | Better suited to a replay-oriented scene than this live walkthrough |
+Clone the repository and open the scene:
 
-Short, read-only samples on **2026-10-10** confirmed connectivity from the development environment:
-
-| Endpoint | Observation |
-| --- | --- |
-| `jetstream.us-west.bsky.network` | 2,500 messages in approximately 17 seconds: 298 posts, 1,709 likes, 263 reposts, 226 follows, and 4 account or identity events |
-| `jetstream.us-east.bsky.network` | 2,204 messages during an 18-second attempt; all four requested collections were observed |
-| `stream.wikimedia.org/v2/stream/recentchange` | 300 messages in approximately 14 seconds, including edit, new, categorize, and log events |
-
-These durations include connection setup and are connectivity observations, not throughput benchmarks or availability guarantees. The two Jetstream samples overlap in time and should not be combined into a larger independent sample.
-
-The western sample included 66 delete operations, one update, six distinct post embed types, language arrays, rich-text facets, reply objects, and additional record fields. It also confirmed the object-versus-string difference in `subject`. Sampling retained structural counters rather than a reusable recording, so a new capture is required for the replay dataset.
-
-The source definitions are available in the official [post](https://github.com/bluesky-social/atproto/blob/main/lexicons/app/bsky/feed/post.json), [like](https://github.com/bluesky-social/atproto/blob/main/lexicons/app/bsky/feed/like.json), [repost](https://github.com/bluesky-social/atproto/blob/main/lexicons/app/bsky/feed/repost.json), and [follow](https://github.com/bluesky-social/atproto/blob/main/lexicons/app/bsky/graph/follow.json) Lexicons.
-
-## Walkthrough
-
-| Step | Presenter action | Observable result |
-| --- | --- | --- |
-| 1. Receive posts, about 2 minutes | Create the demo objects, subscribe to `app.bsky.feed.post`, and inspect committed rows | Raw posts are available alongside stable event metadata |
-| 2. Discover structure, about 2 minutes | Run `schema()` on the record, then inspect selected nested objects | Optional language arrays, reply relationships, embeds, and additional fields become visible |
-| 3. Expand the subscription, about 2 minutes | Add likes, reposts, and follows | The same table and ingestion transformation accept the new shapes; the original post query still works |
-| 4. Ask new questions, about 2 minutes | Compare `subject` types, count post embed types, and calculate the share of reply posts | Nested fields participate in filters and aggregations without being promoted to dedicated columns |
-| 5. Verify repeatability, about 2 minutes | Replay an already-loaded recording and compare logical event counts, then clean up | Duplicate delivery does not inflate the analysis view; cleanup removes only this run's rows |
-
-Use ScopeDB Console to show the input rows, query text, and results together. A dedicated dashboard can follow once the walkthrough is useful on its own.
-
-The live path adds collections at a recorded phase boundary. Newly subscribed collections are covered from that transition onward; the scene must not imply that their earlier activity was also captured. The rehearsed path loads a recording in explicitly labeled stages selected by collection while preserving the original payloads and timestamps.
-
-## Data flow and execution modes
-
-```mermaid
-flowchart LR
-    source["Bluesky Jetstream v2"] --> collector["Go collector"]
-    collector -->|record| recording["Local NDJSON recording"]
-    recording -->|replay| collector
-    collector -->|"Batched JSON and ScopeQL transformation"| database["ScopeDB"]
-    database --> console["Console: structure discovery and analysis"]
+```bash
+git clone https://github.com/scopedb/demo-scene.git
+cd demo-scene/bluesky-events
+go version
 ```
 
-The collector has three explicit modes:
+If you already have the repository, start in its `bluesky-events` directory. Run all terminal commands below from this directory and keep the same terminal open.
 
-- `live`: subscribe and write events to ScopeDB.
-- `record`: capture a bounded source stream and a manifest into a local directory without requiring a ScopeDB connection.
-- `replay`: read a recording through the same envelope extraction and ScopeDB write path used by `live`.
+## 2. Connect the collector to your workspace
 
-Use the v2 endpoint `/xrpc/network.bsky.jetstream.subscribeEvents` with the `xrpc.v1.json` WebSocket subprotocol. The observed wire format has a transport envelope containing `payload`; commit payloads expose `seq`, `time`, `witnessedAt`, `collection`, `operation`, and an optional `record`. Keep this wire contract separate from any SDK-specific serialized event shape.
+In Console, check the workspace selector at the bottom left. Use this same workspace for the API key and every query below.
 
-Subscribe to the following collections, retaining account, identity, and sync events as separate event kinds when they arrive:
+Open **Connect** in the left navigation. Copy the address labeled **ScopeDB API**. This is the address the collector needs; your value may differ from the screenshot.
 
-```text
-app.bsky.feed.post
-app.bsky.feed.like
-app.bsky.feed.repost
-app.bsky.graph.follow
+![Connect page with the ScopeDB API address and API key entry point](assets/console-connect.jpg)
+
+Click **Create API key** (**Create new key** if your workspace already has keys). Enter a name such as `bluesky-demo`, choose an expiration, and click **Create Key**. Copy the secret when it appears; you can retrieve the full secret only at creation time. If you already have a usable key for this workspace, you can use it instead.
+
+![Create API Key dialog with a name and expiration](assets/console-create-key.jpg)
+
+In your terminal, replace the endpoint placeholder, then paste your API key at the hidden input prompt:
+
+```bash
+export SCOPEDB_ENDPOINT='https://PASTE-YOUR-SCOPEDB-API-ADDRESS'
+printf 'ScopeDB API key: '
+read -rs SCOPEDB_API_KEY
+printf '\n'
+export SCOPEDB_API_KEY
 ```
 
-The collector validates the stable envelope needed for ingestion and recovery, then preserves the complete payload as an object. New business fields must survive ingestion without additions to Go structs or per-collection mappings. Images and videos remain references inside the event; the collector does not download media.
+The key is held in this terminal's environment. Do not paste it into the query editor or commit it to the repository.
 
-Use a single source endpoint for each run. Save the endpoint, subscription conditions, and last acknowledged sequence in the checkpoint. Sequence gaps are expected with collection filtering and do not by themselves indicate data loss. Treat a change of source instance as a new run instead of assuming its sequence numbers identify the same events.
+## 3. Create the event table
 
-## Proposed ScopeDB model
+Open **Query** in Console. Paste and run each block below separately using **Run** or **⌘+Enter** on macOS. Replace the editor contents for each block, and check that the result reports success before continuing.
 
-Use a dedicated `bluesky_demo` schema. The following statements describe the intended model and have not been executed against ScopeDB.
+Create a schema for this demo:
 
 ```sql
 CREATE SCHEMA bluesky_demo;
+```
 
+Create a table with a few fixed columns and the complete event payload:
+
+```sql
 CREATE TABLE bluesky_demo.events_raw (
     run_id string,
     event_id string,
     event_time timestamp,
     ingested_at timestamp,
-    kind string,
     collection string,
     operation string,
     raw object
 );
-
-CREATE VIEW bluesky_demo.events AS
-    FROM bluesky_demo.events_raw
-    DISTINCT ON run_id, event_id
-    BY ingested_at DESC;
 ```
 
-| Field | Meaning |
-| --- | --- |
-| `run_id` | Identifies one demonstration dataset and isolates its queries and cleanup |
-| `event_id` | Source endpoint plus the source sequence; stable across reconnects and replay of the same recording |
-| `event_time` | Parsed `witnessedAt`, falling back to the payload's `time` when absent |
-| `ingested_at` | ScopeDB ingestion time, assigned by the ingest transformation |
-| `kind` | Event kind from the payload's type discriminator |
-| `collection`, `operation` | Commit metadata; null for event kinds without these fields |
-| `raw` | The complete original v2 payload, including the dynamic `record` when present |
+Create a view that keeps one copy of each event per run:
 
-The record's client-declared `createdAt` remains in `raw`; it is not the recovery cursor. Preserve source timestamps during replay and select the dataset by `run_id`, so a saved recording remains useful later.
+```sql
+CREATE VIEW bluesky_demo.events AS
+FROM bluesky_demo.events_raw
+DISTINCT ON run_id, event_id BY ingested_at DESC;
+```
 
-The physical table is an event log. The view removes repeat delivery of the same source event while retaining distinct updates and deletes of a record. Record URI alone would be the wrong deduplication key for this event-counting model.
+You will query `bluesky_demo.events` throughout the walkthrough. The underlying `events_raw` table retains every imported row, so the final step can show what happens during replay. These statements are also in [01-create.scopeql](queries/01-create.scopeql).
 
-This follows ScopeDB's [typed columns plus flexible payload](https://docs.scopedb.io/guides/model-flexible-events) model and the documented [DISTINCT ON](https://docs.scopedb.io/reference/commands/stmt-query#distinct-on) query operator.
+If you already created these objects in an earlier run of this tutorial, reuse them and skip this setup step. Use a new `run_id` when loading another capture, as shown in [Continue exploring](#9-continue-exploring). Keep this schema dedicated to Bluesky events.
 
-## Core queries and expected observations
+## 4. Capture a short slice of public events
 
-These are draft queries for the proposed view. Replace `demo-001` with the selected run ID when implementing the walkthrough.
+Create a directory outside the repository for captures you can revisit, then start the collector:
 
-### Discover the fields present in each record type
+```bash
+export DEMO_DATA_DIR="$HOME/scopedb-demo-data/bluesky-events"
+mkdir -p "$DEMO_DATA_DIR"
+go run . capture -out "$DEMO_DATA_DIR/events.ndjson"
+```
+
+The first run downloads the pinned Go dependency. After connecting, capture stops at 30 seconds, 5,000 events, or 50 MiB, whichever comes first. It subscribes to posts, likes, reposts, and follows and reports how many events it captured in each collection.
+
+A successful run ends with output like this; your counts will differ:
+
+```text
+Saved 5000 events (3592829 bytes) to .../events.ndjson
+  app.bsky.feed.post: 661
+  app.bsky.feed.like: 3395
+  app.bsky.feed.repost: 553
+  app.bsky.graph.follow: 391
+```
+
+Keep this file for later exploration. It lets you load the same observed events in stages and replay them without depending on a later stream sample. Each line contains the source endpoint and one complete event payload. No public user content is bundled in this repository.
+
+If any collection has no events, take a longer sample in a new file before proceeding:
+
+```bash
+go run . capture -duration 60s -limit 10000 \
+  -out "$DEMO_DATA_DIR/events-longer.ndjson"
+```
+
+Use that filename in the remaining commands. The collector deliberately refuses to overwrite an existing capture.
+
+## 5. Start with posts and discover their fields
+
+Load only the post events from your capture:
+
+```bash
+go run . load -file "$DEMO_DATA_DIR/events.ndjson" -stage posts
+```
+
+The last `Loaded ... events for run demo-001 (posts)` line reports the acknowledged total. Return to **Query** and run:
 
 ```sql
 FROM bluesky_demo.events
 WHERE run_id = 'demo-001'
-  AND kind = 'commit'
-  AND operation IN ('create', 'update')
+GROUP BY collection
+AGGREGATE count() AS events
+ORDER BY events DESC;
+```
+
+You should see one collection, `app.bsky.feed.post`, with the number of posts printed by the collector. This count includes create, update, and delete events.
+
+Now discover the fields carried by the records:
+
+```sql
+FROM bluesky_demo.events
+WHERE run_id = 'demo-001' AND operation IN ('create', 'update')
 GROUP BY collection
 AGGREGATE schema(raw['record']::object) AS observed_schema;
 ```
 
-`schema()` summarizes keys and types at the current object level. Inspect a nested object by applying it again to that object, such as `raw['record']['embed']::object`. Compare summaries as sets; array ordering in the summary is not part of the demonstration's contract.
+The result describes fields observed in this sample. Expect `text` and `createdAt`, often alongside `langs`, `reply`, `embed`, or `facets`. Double-click the `observed_schema` cell to open **Cell details** on the right. Field order and optional fields vary with the sample.
 
-### Compare the types at the same field path
+![Discover post fields and inspect the schema result in Console](assets/console-post-schema.jpg)
+
+Delete events have no record body, so this query uses only creates and updates. `schema()` describes the object level you pass to it. To inspect a nested object, pass that object explicitly instead.
+
+## 6. Add likes, reposts, and follows
+
+In the same terminal, load the other three collections from the same file:
+
+```bash
+go run . load -file "$DEMO_DATA_DIR/events.ndjson" -stage social
+```
+
+Run the count and schema queries from step 5 again. You should now see four collections. You have added no columns and changed no ingestion mapping: the different records are all stored under `raw['record']`.
+
+The `subject` field makes the difference especially clear. Run:
 
 ```sql
 FROM bluesky_demo.events
-WHERE run_id = 'demo-001'
-  AND kind = 'commit'
-  AND operation = 'create'
-SELECT
-    collection,
-    typeof(raw['record']['subject']) AS subject_type
+WHERE run_id = 'demo-001' AND operation = 'create'
+SELECT collection, typeof(raw['record']['subject']) AS subject_type
 GROUP BY collection, subject_type
 AGGREGATE count() AS events
 ORDER BY collection, subject_type;
 ```
 
-For the selected record definitions, expect objects for likes and reposts, strings for follows, and a missing subject for posts. The presentation should show these observations before choosing a type-specific extraction or cast.
+For standard Bluesky records, expect these shapes:
 
-### Analyze a newly discovered nested dimension
+| Collection | `subject_type` | Meaning |
+| --- | --- | --- |
+| `app.bsky.feed.post` | `null` | Posts do not normally have a `subject` field. |
+| `app.bsky.feed.like` | `object` | A reference containing the liked record's URI and CID. |
+| `app.bsky.feed.repost` | `object` | A reference containing the reposted record's URI and CID. |
+| `app.bsky.graph.follow` | `string` | The followed account's DID. |
+
+A missing object field evaluates to `NULL`; `typeof` returns the text label `null` for that value. The object column preserves both the reference objects and the DID strings, so you can inspect their actual types at query time.
+
+![Query subject types across four event collections](assets/console-subject-types.jpg)
+
+If a collection name is truncated, drag the right edge of its column header to widen it. The screenshot uses the same query and a wider `collection` column.
+
+## 7. Ask questions about nested fields
+
+Which kinds of embedded content appear in the posts you captured?
 
 ```sql
 FROM bluesky_demo.events
 WHERE run_id = 'demo-001'
-  AND kind = 'commit'
-  AND collection = 'app.bsky.feed.post'
-  AND operation = 'create'
+    AND collection = 'app.bsky.feed.post'
+    AND operation = 'create'
 SELECT TRY(raw['record']['embed']['$type']::string) AS embed_type
+WHERE embed_type IS NOT NULL
 GROUP BY embed_type
 AGGREGATE count() AS posts
-ORDER BY posts DESC, embed_type;
+ORDER BY posts DESC;
 ```
 
-Keep the null group visible for posts without an embed. A failed cast must be distinguishable from a missing field in diagnostic queries rather than silently becoming an undocumented category. The exact counts and embed types vary in live mode; a fixed recording supplies the expected replay results.
+You may see `app.bsky.embed.images`, `app.bsky.embed.external`, or other embed types. `TRY(...)` lets the query continue when a value has an unexpected type. The `IS NOT NULL` filter keeps named embed types. To count posts without an embed as well, remove that filter and inspect the `NULL` row in **Table** view; it also includes values that cannot be cast to a string.
 
-Reply share is a second useful query: count post-create events with a non-null `record.reply` and divide by all post-create events in the same run. Each metric describes the captured event window, not current network-wide post, like, or follow totals.
+With the filter in place, click **Chart** in the results toolbar and select **Bar**. Console automatically maps `embed_type` to the categories and `posts` to the values. Check the mapping shown above the chart. These counts describe this captured slice of activity, not all of Bluesky.
 
-## Recording and repeatability
+![Bar chart of named embed types from the captured posts](assets/console-embed-chart.jpg)
 
-Proposed capture limits are **5 minutes, 20,000 messages, or 50 MiB of uncompressed NDJSON**, whichever is reached first. Make these configurable and report the stopping reason. Limit memory independently of the capture size with a bounded queue; choose batch row, byte, and flush-time limits during the first ingestion experiment.
+Switch back to **Table**, replace the editor contents, and run the next query: how many captured posts are replies?
 
-Each recording manifest includes the source endpoint, protocol and collector versions, filters, capture interval, first and last sequence, message count, checksum, and observed coverage. Keep recordings, manifests, checkpoints, and logs in a selected temporary directory outside the repository.
+```sql
+FROM bluesky_demo.events
+WHERE run_id = 'demo-001'
+    AND collection = 'app.bsky.feed.post'
+    AND operation = 'create'
+SELECT raw['record']['reply'] IS NOT NULL AS is_reply
+GROUP BY is_reply
+AGGREGATE count() AS posts
+ORDER BY posts DESC;
+```
 
-Before using a recording for the staged walkthrough, verify that it contains:
+The result groups posts into `true` and `false`. You queried nested content without first flattening every possible field into a column. All investigation queries are also available in [queries/](queries/).
 
-- All four selected collections, including both object and string `subject` values.
-- Language arrays, reply objects, and multiple embed types.
-- Delete events without a record body.
-- At least one non-commit event.
+## 8. Replay without double-counting
 
-Report missing coverage and ask the presenter to capture another bounded interval. The core walkthrough must not require a rare event, such as a particular embed variant or an update, to occur live on cue. Small hand-authored fixtures can cover rare failure and boundary cases in automated checks; keep those distinct from the real demonstration recording.
+Run these two queries separately and note their results:
 
-Replaying the same recording with the same `run_id` should preserve the analysis view's event counts. Replaying into a fresh run should reproduce the same normalized query results. Staged replay preserves source event IDs and timestamps even though collections are loaded in presentation order.
+```sql
+FROM bluesky_demo.events_raw
+WHERE run_id = 'demo-001'
+AGGREGATE count() AS stored_rows;
+```
 
-The source's live recovery window is finite. [Jetstream archive replay](https://bsky.network/docs/jetstream-replay/) adds authenticated HTTP requests and usage limits; it is outside the first milestone. If recovery falls outside the live window, stop with an explicit recovery error and let the presenter start a new capture or use a local recording. Local replay removes the Bluesky availability dependency but still requires ScopeDB.
+```sql
+FROM bluesky_demo.events
+WHERE run_id = 'demo-001'
+AGGREGATE count() AS unique_events;
+```
 
-## Failure handling and data semantics
+Now import the same capture again, including all four collections:
 
-| Condition | Required behavior |
+```bash
+go run . load -file "$DEMO_DATA_DIR/events.ndjson" -stage all
+```
+
+Run both count queries again. `stored_rows` increases by the number of events in the capture and `unique_events` stays unchanged. If each stage succeeded on its first attempt, this first replay doubles `stored_rows`. Retrying an interrupted import may have already added repeated rows to the raw table. The view removes repeated deliveries; it does not delete rows from the raw table.
+
+An event ID combines its source endpoint and sequence number. Replaying the same file with the same `run_id` preserves those IDs. A later update or delete is a separate event and remains in the view. This is an event history, not the current state of every Bluesky record.
+
+The default run ID is `demo-001`. To keep another run separate, pass `-run-id demo-002` to every load command for that run and change the queries' `run_id` filter to match.
+
+## 9. Continue exploring
+
+Your table, view, and captured events remain available. Keep using **Query** to explore other fields, inspect an `embed` or `reply` object with `schema()`, or change the filters to answer another question.
+
+To capture activity at another time, use a new filename and run ID. Reuse the table and view you already created:
+
+```bash
+go run . capture -out "$DEMO_DATA_DIR/events-demo-002.ndjson"
+go run . load -file "$DEMO_DATA_DIR/events-demo-002.ndjson" \
+  -stage all -run-id demo-002
+```
+
+Change the investigation queries to `run_id = 'demo-002'` to explore the new sample, or compare collection counts across your captures:
+
+```sql
+FROM bluesky_demo.events
+GROUP BY run_id, collection
+AGGREGATE count() AS events
+ORDER BY run_id, events DESC;
+```
+
+This query is also in [08-compare-runs.scopeql](queries/08-compare-runs.scopeql). Use a distinct run ID for each new capture and keep the same run ID when replaying an existing file. If you return in a new terminal, set `DEMO_DATA_DIR` again and reconnect using step 2; your stored data is still available in Console.
+
+## Troubleshooting
+
+| Symptom | What to do |
 | --- | --- |
-| Disconnect or duplicate delivery | Resume the same source, retain stable event IDs, and advance the checkpoint only after the write is confirmed |
-| Ambiguous ScopeDB write outcome | Stop checkpoint advancement, reconcile the affected event IDs, and resolve the batch before retrying; do not interpret a timeout as proof of failure |
-| Write backlog | Bound memory, expose backlog and error counters, and stop explicitly if the configured recovery budget is exhausted |
-| Missing fields or different value types | Preserve the payload and query the observed type before applying a type-specific operation |
-| Delete event without `record` | Store the operation; exclude it from queries that inspect record bodies |
-| Account, identity, or sync event | Preserve it with its kind and null commit-only columns; do not treat it as a malformed post |
-| Duplicate source events | Deduplicate by source event identity, while preserving distinct revisions of the same record |
-| Incomplete capture window | Label results as observed events; display match coverage if a later extension joins interactions to posts |
+| Jetstream cannot connect or no events arrive | Retry with `-source wss://jetstream.us-east.bsky.network` and a new output filename. Check outbound WebSocket access. |
+| A capture stops with an error | Complete lines already written can still be loaded. For a fresh sample, use a new output filename. |
+| `401` or `403` when loading | Recheck the API address, key, expiration, and workspace. The Console login and the collector's API key are separate credentials. |
+| Table not found | Run all three setup statements in the workspace matching the API key. |
+| `413` when loading | Retry with `-batch-size 20` or a smaller value. |
+| `429`, a timeout, `EOF`, or a server error when loading | The command stops rather than silently retrying. Wait for the connection or service to recover, then replay the same file, stage, and run ID. Earlier batches may have succeeded; query the deduplicated view. |
+| No rows for a query | Check the `run_id`, ensure the relevant load command finished, and compare with the collection counts printed during capture. |
+| Table missing from the Query catalog | Click **Refresh catalog**. You can still run a query using its full `bluesky_demo.events` name. |
 
-ScopeDB's [HTTP API retry guidance](https://docs.scopedb.io/developer/http-api#errors-and-retries) requires reconciliation of ambiguous writes. The view makes repeated events count once, but does not establish exactly-once delivery or prove that every source event was captured.
+## Source and local checks
 
-This is a short-lived event-analysis dataset, not a replica of current social state. A future continuously hosted application would also need to apply record and account deletions to retained content and account for resynchronization. Raw user content stays out of Git; cleanup removes the local recording and the run's stored rows.
+Last verified on October 10, 2026, with Go 1.27.1 on macOS (arm64) and ScopeDB Cloud. The walkthrough was tested with a live 5,000-event capture, staged imports, the investigation queries, and replay. Screenshots show a separate live sample; your fields and counts will differ.
 
-## Implementation milestones and acceptance
+The collector uses the public [Jetstream v2 JSON WebSocket](https://bsky.network/docs/jetstream/) with collection filters and `kinds=commit`. It preserves record fields in their original JSON types. `event_time` uses the source's `witnessedAt` timestamp when present, otherwise `time`; it does not use a post author's `createdAt` value. This bounded capture does not reconnect automatically or request the historical archive.
 
-### Milestone 1: a complete Console walkthrough
+The public stream contains content supplied by its authors. Keep capture files out of source control and use aggregate results when sharing screenshots.
 
-Implement the collector modes, example configuration, setup and query files, recording manifest, checks, and cleanup instructions. Pin dependencies and record the tested ScopeDB deployment or version after the first successful end-to-end run.
+To run the collector's local checks:
 
-Suggested scene layout:
-
-```text
-bluesky-events/
-  README.md
-  .env.example
-  go.mod
-  go.sum
-  main.go
-  main_test.go
-  queries/
-    setup.scopeql
-    discover.scopeql
-    analyze.scopeql
-    cleanup.scopeql
-  testdata/
+```bash
+go test -race ./...
+go vet ./...
 ```
-
-Acceptance criteria:
-
-1. Expanding from posts to all four collections requires no table change or collection-specific ingestion mapping; the original post query remains valid.
-2. Nested objects, arrays, optional fields, and mixed `subject` types survive ingestion and produce the expected structural observations.
-3. Missing record bodies and non-commit events do not interrupt ingestion or corrupt record-level aggregates.
-4. A fixed recording reproduces expected results in a fresh run; loading it twice into one run leaves the logical event counts unchanged.
-5. A controlled disconnect and an ambiguous write exercise checkpoint behavior without silently claiming complete or exactly-once capture.
-6. A fresh-checkout walkthrough documents prerequisites, setup time, data limits, expected results, and measured write-to-query visibility. Live-source freshness and ScopeDB query latency are reported separately.
-7. Cleanup stops the collector, deletes only the selected run's database rows and local files, and allows a new run to complete. Removing shared demo views, tables, or the schema is a separate explicit teardown step.
-
-The only database credentials needed for this milestone are a ScopeDB endpoint and an API key authorized for the dedicated demo objects. Use local environment variables or an ignored `.env`; the example file contains placeholders. ScopeDB usage is subject to the selected deployment's limits and billing. No Jetstream archive credentials or additional hosted services are required for the proposed live-and-local-replay path.
-
-### Milestone 2: presentation and deeper exploration
-
-After the core walkthrough is verified, add a recording of the presentation and consider a field-summary comparison view, post/interaction joins with visible match coverage, or an index experiment on a useful nested path. ScopeDB supports [object and expression indexes](https://docs.scopedb.io/guides/add-indexes); any performance comparison needs a controlled dataset, documented cache and index state, and measured results.
-
-## Review decisions
-
-- Is the transition from posts to several record types a clear demonstration of ScopeDB's flexible data model?
-- Are structure discovery, embed distribution, and reply share useful enough to carry the first presentation?
-- Does Console plus a collector provide the right first delivery, with a dedicated visual interface deferred until the story is validated?
-- Are the proposed bounded capture and local replay sufficient for the intended presentation environment?

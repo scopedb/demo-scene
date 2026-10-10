@@ -1,0 +1,4 @@
+FROM bluesky_demo.events
+GROUP BY run_id, collection
+AGGREGATE count() AS events
+ORDER BY run_id, events DESC;

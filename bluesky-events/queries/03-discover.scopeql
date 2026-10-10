@@ -1,0 +1,4 @@
+FROM bluesky_demo.events
+WHERE run_id = 'demo-001' AND operation IN ('create', 'update')
+GROUP BY collection
+AGGREGATE schema(raw['record']::object) AS observed_schema;
