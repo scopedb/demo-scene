@@ -1,7 +1,0 @@
-FROM bluesky_demo.events_raw
-WHERE run_id = 'demo-001'
-AGGREGATE count() AS stored_rows;
-
-FROM bluesky_demo.events
-WHERE run_id = 'demo-001'
-AGGREGATE count() AS unique_events;

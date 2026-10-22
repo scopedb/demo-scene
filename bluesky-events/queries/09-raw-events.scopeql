@@ -1,0 +1,5 @@
+FROM guide_bluesky.events
+WHERE capture_id = 'first'
+SELECT event_time, operation, raw
+ORDER BY event_time
+LIMIT 5

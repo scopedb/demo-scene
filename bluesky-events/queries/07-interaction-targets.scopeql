@@ -1,0 +1,17 @@
+FROM guide_bluesky.events
+WHERE capture_id = 'first' AND operation = 'create'
+    AND collection IN ('app.bsky.feed.like', 'app.bsky.feed.repost')
+SELECT collection, TRY(raw['record']['subject']['uri']::string) AS target_uri
+LEFT JOIN (
+    FROM guide_bluesky.events
+    WHERE capture_id = 'first'
+        AND collection = 'app.bsky.feed.post' AND operation = 'create'
+    SELECT 'at://' || raw['did']::string || '/' || collection
+        || '/' || raw['rkey']::string AS post_uri
+    DISTINCT ON post_uri
+) AS posts ON target_uri = posts.post_uri
+GROUP BY collection
+AGGREGATE count() AS interactions,
+    sum(if(posts.post_uri IS NOT NULL, 1, 0)) AS targets_observed,
+    sum(if(posts.post_uri IS NULL, 1, 0)) AS targets_not_observed
+ORDER BY collection

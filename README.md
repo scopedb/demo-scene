@@ -8,7 +8,7 @@ Each demo follows a concrete question from incoming data to a useful answer. Sce
 
 | Scene | What you will do | Prerequisites |
 | --- | --- | --- |
-| [Bluesky events](bluesky-events/README.md) | Capture public events, discover their fields, and query posts, likes, reposts, and follows in one table | ScopeDB Cloud account, Go 1.24+, Git |
+| [Bluesky events](bluesky-events/README.md) | Build a checked activity briefing from a sample, then compare live Bluesky observations | ScopeDB Cloud account, Go 1.24+, Git |
 
 ## Run a demo
 
@@ -33,5 +33,5 @@ Follow the [contribution guide](CONTRIBUTING.md). Write the walkthrough for some
 ## Resources
 
 - [ScopeDB](https://www.scopedb.io/)
-- [Documentation](https://docs.scopedb.io/)
+- [Documentation](https://www.scopedb.io/docs)
 - [ScopeDB Console](https://console.scopedb.cloud/)

@@ -41,6 +41,8 @@ type eventInfo struct {
 	WitnessedAt string `json:"witnessedAt"`
 	Collection  string `json:"collection"`
 	Operation   string `json:"operation"`
+	DID         string `json:"did"`
+	RKey        string `json:"rkey"`
 }
 
 func main() {
@@ -71,14 +73,14 @@ func run(args []string) error {
 	case "load":
 		flags := flag.NewFlagSet("load", flag.ContinueOnError)
 		input := flags.String("file", "", "capture file to load")
-		stage := flags.String("stage", "posts", "posts, social (likes/reposts/follows), or all")
-		runID := flags.String("run-id", "demo-001", "identifier used to isolate this walkthrough")
+		stage := flags.String("stage", "all", "all, posts, or social (likes/reposts/follows)")
+		captureID := flags.String("capture-id", "first", "use the same identifier when replaying a capture")
 		batchSize := flags.Int("batch-size", 500, "events per HTTP request, from 1 to 1000")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
-		if *input == "" || *runID == "" || *batchSize < 1 || *batchSize > 1000 || flags.NArg() != 0 {
-			return errors.New("load requires -file, a nonempty -run-id, and -batch-size between 1 and 1000")
+		if *input == "" || *captureID == "" || *batchSize < 1 || *batchSize > 1000 || flags.NArg() != 0 {
+			return errors.New("load requires -file, a nonempty -capture-id, and -batch-size between 1 and 1000")
 		}
 		if *stage != "posts" && *stage != "social" && *stage != "all" {
 			return errors.New("-stage must be posts, social, or all")
@@ -92,8 +94,11 @@ func run(args []string) error {
 		if key == "" {
 			return errors.New("set SCOPEDB_API_KEY to an API key for that workspace")
 		}
-		client := &http.Client{Timeout: 60 * time.Second}
-		return load(*input, *stage, *runID, *batchSize, client, endpoint, key)
+		client := &http.Client{
+			Timeout:       60 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		}
+		return load(*input, *stage, *captureID, *batchSize, client, endpoint, key)
 	default:
 		return fmt.Errorf("unknown command %q; use capture or load", args[0])
 	}
@@ -130,10 +135,13 @@ func capture(source, output string, duration time.Duration, limit int) error {
 	fmt.Printf("Capturing from %s for up to %s or %d events (50 MiB maximum)...\n", source, duration, limit)
 	counts := make(map[string]int)
 	total, size := 0, 0
+	var first, last string
+	stopReason := "event limit"
 	for total < limit {
 		_, frame, err := conn.Read(ctx)
 		if err != nil {
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				stopReason = "duration limit"
 				break
 			}
 			return fmt.Errorf("capture stopped after %d events: %w; complete lines in %s can still be loaded", total, err, output)
@@ -146,6 +154,16 @@ func capture(source, output string, duration time.Duration, limit int) error {
 			return errors.New("unexpected Jetstream frame; expected a v2 JSON message")
 		}
 		event := capturedEvent{Source: source, Raw: envelope.Payload}
+		var tag struct {
+			Type string `json:"$type"`
+		}
+		if err := json.Unmarshal(event.Raw, &tag); err != nil {
+			return fmt.Errorf("invalid Jetstream payload: %w", err)
+		}
+		if tag.Type == "network.bsky.jetstream.subscribeEvents#info" {
+			// Advisories have no record mutation; never count them as activity.
+			continue
+		}
 		info, err := inspect(event)
 		if err != nil {
 			return err
@@ -155,12 +173,17 @@ func capture(source, output string, duration time.Duration, limit int) error {
 			return err
 		}
 		if size+len(line)+1 > maxFileBytes {
+			stopReason = "50 MiB limit"
 			break
 		}
 		if _, err := f.Write(append(line, '\n')); err != nil {
 			return err
 		}
 		total++
+		if first == "" {
+			first = info.Time
+		}
+		last = info.Time
 		size += len(line) + 1
 		counts[info.Collection]++
 	}
@@ -168,6 +191,7 @@ func capture(source, output string, duration time.Duration, limit int) error {
 		return err
 	}
 	fmt.Printf("Saved %d events (%d bytes) to %s\n", total, size, output)
+	fmt.Printf("Stopped at %s; observed event times: %s through %s\n", stopReason, first, last)
 	for _, collection := range collections {
 		fmt.Printf("  %s: %d\n", collection, counts[collection])
 	}
@@ -182,8 +206,8 @@ func inspect(event capturedEvent) (eventInfo, error) {
 	if err := json.Unmarshal(event.Raw, &info); err != nil {
 		return info, fmt.Errorf("invalid event payload: %w", err)
 	}
-	if event.Source == "" || info.Type != commitType || info.Seq <= 0 || info.Collection == "" {
-		return info, errors.New("expected a Jetstream v2 commit with source, seq, and collection")
+	if event.Source == "" || info.Type != commitType || info.Seq <= 0 || info.Collection == "" || info.DID == "" || info.RKey == "" {
+		return info, errors.New("expected a Jetstream v2 commit with source, seq, collection, did, and rkey")
 	}
 	if info.Operation != "create" && info.Operation != "update" && info.Operation != "delete" {
 		return info, fmt.Errorf("unexpected operation %q", info.Operation)
@@ -197,17 +221,7 @@ func inspect(event capturedEvent) (eventInfo, error) {
 	return info, nil
 }
 
-const ingestStatement = `SELECT
-    $0['run_id']::string AS run_id,
-    $0['event_id']::string AS event_id,
-    $0['event_time']::timestamp AS event_time,
-    NOW() AS ingested_at,
-    $0['collection']::string AS collection,
-    $0['operation']::string AS operation,
-    $0['raw']::object AS raw
-INSERT INTO bluesky_demo.events_raw`
-
-func load(input, stage, runID string, batchSize int, client *http.Client, endpoint, key string) error {
+func load(input, stage, captureID string, batchSize int, client *http.Client, endpoint, key string) error {
 	f, err := os.Open(input)
 	if err != nil {
 		return err
@@ -221,11 +235,11 @@ func load(input, stage, runID string, batchSize int, client *http.Client, endpoi
 		if batchCount == 0 {
 			return nil
 		}
-		if err := ingest(client, endpoint, key, rows.String(), batchCount); err != nil {
-			return fmt.Errorf("%d rows confirmed before this batch: %w; replay the same file with the same run ID after fixing the cause (the events view removes repeated events)", total, err)
+		if err := appendRows(client, endpoint, key, rows.String(), batchCount); err != nil {
+			return fmt.Errorf("%d rows confirmed before this batch: %w; replay the same file with the same capture ID after fixing the cause (the events view removes repeated events)", total, err)
 		}
 		total += batchCount
-		fmt.Printf("Loaded %d events for run %s (%s)\n", total, runID, stage)
+		fmt.Printf("Loaded %d events for capture %s (%s)\n", total, captureID, stage)
 		rows.Reset()
 		batchCount = 0
 		return nil
@@ -250,8 +264,9 @@ func load(input, stage, runID string, batchSize int, client *http.Client, endpoi
 			continue
 		}
 		row, err := json.Marshal(map[string]any{
-			"run_id": runID, "event_id": event.Source + "/" + strconv.FormatInt(info.Seq, 10),
-			"event_time": info.Time, "collection": info.Collection, "operation": info.Operation, "raw": event.Raw,
+			"capture_id": captureID, "event_id": event.Source + "/" + strconv.FormatInt(info.Seq, 10),
+			"event_time": info.Time, "ingested_at": time.Now().UTC().Format(time.RFC3339Nano),
+			"collection": info.Collection, "operation": info.Operation, "raw": event.Raw,
 		})
 		if err != nil {
 			return err
@@ -283,41 +298,41 @@ func load(input, stage, runID string, batchSize int, client *http.Client, endpoi
 	return nil
 }
 
-func ingest(client *http.Client, endpoint, key, rows string, expected int) error {
-	body, err := json.Marshal(map[string]any{
-		"data":      map[string]string{"format": "json", "rows": rows},
-		"statement": ingestStatement,
-	})
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequest(http.MethodPost, endpoint+"/v1/ingest", bytes.NewReader(body))
+func appendRows(client *http.Client, endpoint, key, rows string, expected int) error {
+	path := "/v1/databases/scopedb/schemas/guide_bluesky/tables/events_raw/rows"
+	req, err := http.NewRequest(http.MethodPost, endpoint+path, strings.NewReader(rows))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+key)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/x-ndjson")
 	// A timeout can leave an unknown write outcome, so let the user replay explicitly.
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("ingest outcome unknown: %w", err)
+		return fmt.Errorf("append outcome unknown: %w", err)
 	}
 	defer resp.Body.Close()
 	response, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if err != nil {
-		return fmt.Errorf("read ingest response (outcome unknown): %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("ingest HTTP %d (request ID %s): %s", resp.StatusCode, resp.Header.Get("X-Request-ID"), response)
+		return fmt.Errorf("read append response (outcome unknown): %w", err)
 	}
 	var result struct {
-		Inserted *int `json:"num_rows_inserted"`
+		State    string `json:"append_state"`
+		Inserted *int   `json:"num_rows_inserted"`
 	}
-	if err := json.Unmarshal(response, &result); err != nil {
-		return fmt.Errorf("invalid ingest response (outcome unknown): %w", err)
+	decodeErr := json.Unmarshal(response, &result)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		state := "unknown"
+		if decodeErr == nil && result.State == "rejected" {
+			state = "rejected"
+		}
+		return fmt.Errorf("append %s, HTTP %d (request ID %s): %s", state, resp.StatusCode, resp.Header.Get("X-Request-ID"), response)
 	}
-	if result.Inserted == nil || *result.Inserted != expected {
-		return fmt.Errorf("ingest response did not confirm all %d rows: %s", expected, response)
+	if decodeErr != nil {
+		return fmt.Errorf("invalid append response (outcome unknown): %w", decodeErr)
+	}
+	if result.State != "committed" || result.Inserted == nil || *result.Inserted != expected {
+		return fmt.Errorf("append outcome unknown: response did not confirm all %d rows committed: %s", expected, response)
 	}
 	return nil
 }

@@ -1,8 +1,0 @@
-FROM bluesky_demo.events
-WHERE run_id = 'demo-001'
-    AND collection = 'app.bsky.feed.post'
-    AND operation = 'create'
-SELECT raw['record']['reply'] IS NOT NULL AS is_reply
-GROUP BY is_reply
-AGGREGATE count() AS posts
-ORDER BY posts DESC;

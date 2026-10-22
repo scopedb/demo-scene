@@ -1,5 +1,0 @@
-FROM bluesky_demo.events
-WHERE run_id = 'demo-001'
-GROUP BY collection
-AGGREGATE count() AS events
-ORDER BY events DESC;

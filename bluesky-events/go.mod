@@ -1,4 +1,4 @@
-module github.com/scopedb/demo-scene/bluesky-events
+module github.com/scopedb/scopedb-site/examples/bluesky-events
 
 go 1.24.0
 

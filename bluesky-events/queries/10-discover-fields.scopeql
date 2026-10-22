@@ -1,0 +1,5 @@
+FROM guide_bluesky.events
+WHERE capture_id = 'first' AND collection = 'app.bsky.feed.post'
+    AND operation IN ('create', 'update')
+GROUP BY collection
+AGGREGATE schema(raw['record']::object) AS observed_schema
