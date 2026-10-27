@@ -1,0 +1,5 @@
+FROM guide_agents.spans
+WHERE run_id = 'agent-failure' AND status = 'error'
+SELECT time, trace_id, span_id, parent_span_id, name, var
+ORDER BY time DESC, span_id
+LIMIT 10

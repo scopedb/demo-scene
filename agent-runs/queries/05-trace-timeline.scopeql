@@ -1,0 +1,5 @@
+FROM guide_agents.spans
+WHERE run_id = 'agent-first' AND trace_id = '<trace-id-from-04>'
+SELECT time, end_time, span_id, parent_span_id, name, status,
+    duration_ns / 1000000.0 AS duration_ms, var
+ORDER BY time, span_id

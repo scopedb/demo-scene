@@ -1,0 +1,30 @@
+receivers:
+  grpc_addr: 127.0.0.1:4317
+  http_addr: 127.0.0.1:4318
+http_addr: 127.0.0.1:8080
+telemetry:
+  metrics_addr: 127.0.0.1:8888
+batch:
+  timeout: 1s
+delivery:
+  timeout: 10s
+  queue:
+    type: memory
+shutdown_timeout: 15s
+
+signals:
+  traces:
+    table: scopedb.guide_agents.spans
+    mapping:
+      time: span.start_time
+      end_time: span.end_time
+      trace_id: span.trace_id
+      span_id: span.span_id
+      parent_span_id: span.parent_span_id
+      name: span.name
+      status: span.status.code
+      duration_ns: span.duration_ns
+      run_id:
+        source: resource.attributes["scopedb.demo.run_id"]
+        cast: string
+      var: span.attributes

@@ -1,9 +1,12 @@
-CREATE TABLE guide_agents.spans (
+CREATE TABLE IF NOT EXISTS guide_agents.spans (
     time timestamp,
+    end_time timestamp,
     trace_id string,
     span_id string,
-    step string,
+    parent_span_id string,
+    name string,
     status string,
-    duration_ms int,
+    duration_ns int,
+    run_id string,
     var object
 )

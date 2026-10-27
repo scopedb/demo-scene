@@ -1,5 +1,0 @@
-FROM guide_agents.spans
-WHERE var['run_id']::string = 'agent-first' AND trace_id = 'trace-03'
-SELECT time, trace_id, span_id, step, status, duration_ms, var
-ORDER BY time DESC, span_id
-LIMIT 10

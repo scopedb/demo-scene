@@ -79,5 +79,7 @@ jobs:
         working-directory: agent-runs
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.91.0
-      - run: cargo test --locked
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - run: python3 -m unittest discover -s tests -v
