@@ -1,6 +1,4 @@
 FROM guide_bluesky.events
 WHERE capture_id = 'first'
-GROUP BY collection, operation
-AGGREGATE count() AS events,
+AGGREGATE count() AS unique_events,
     min(event_time) AS first_seen, max(event_time) AS last_seen
-ORDER BY collection, operation

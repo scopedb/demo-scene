@@ -19,7 +19,7 @@ Keep the scene self-contained. Use the files and directories it needs, for examp
   assets/            Diagrams, screenshots, and dashboard definitions
 ```
 
-Choose the language and tools that fit the scene. Add shared utilities when multiple working demos need the same behavior.
+Choose the language and official ScopeDB SDK that fit the scene. Make event production or ingestion continuous by default, with Ctrl+C shutdown that settles buffered writes. Keep finite modes explicit for verification. Add shared utilities when multiple working demos need the same behavior.
 
 ## Make the walkthrough reproducible
 

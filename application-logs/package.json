@@ -1,0 +1,15 @@
+{
+  "name": "scopedb-application-logs-tutorial",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "scopedb": "0.3.0"
+  },
+  "scripts": {
+    "start": "node checkout.mjs",
+    "test": "node --test"
+  }
+}

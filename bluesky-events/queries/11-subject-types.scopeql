@@ -1,6 +1,0 @@
-FROM guide_bluesky.events
-WHERE capture_id = 'first' AND operation = 'create'
-SELECT collection, typeof(raw['record']['subject']) AS subject_type
-GROUP BY collection, subject_type
-AGGREGATE count() AS events
-ORDER BY collection, subject_type

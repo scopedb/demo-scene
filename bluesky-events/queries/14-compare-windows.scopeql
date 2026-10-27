@@ -1,9 +1,0 @@
-FROM guide_bluesky.events
-WHERE capture_id IN ('live-first', 'live-second')
-GROUP BY capture_id
-AGGREGATE min(event_time) AS first_seen, max(event_time) AS last_seen,
-    count() AS mutations,
-    sum(if(operation = 'create' AND collection = 'app.bsky.feed.post', 1, 0)) AS post_creates,
-    sum(if(operation = 'create' AND collection = 'app.bsky.feed.like', 1, 0)) AS like_creates,
-    sum(if(operation = 'create' AND collection = 'app.bsky.feed.repost', 1, 0)) AS repost_creates
-ORDER BY first_seen

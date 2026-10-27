@@ -1,0 +1,5 @@
+FROM guide_logs.requests
+WHERE var['run_id']::string = 'checkout-first' AND level = 'error'
+SELECT time, message, var['request_id']::string AS request_id, var
+ORDER BY time DESC, request_id
+LIMIT 10

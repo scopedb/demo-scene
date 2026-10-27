@@ -1,37 +1,27 @@
-# ScopeDB Demo Scene
+# ScopeDB demos
 
-Hands-on scenarios, sample applications, and workshop material for exploring ScopeDB.
+Continuously produce or collect events, write them with an official ScopeDB SDK, and follow the arriving data to a useful answer in Console.
 
-Each demo follows a concrete question from incoming data to a useful answer. Scenes live in separate top-level directories and include their own setup, data, queries, and walkthrough.
+## Choose a demo
 
-## Demos
+| Demo                                       | Question                                                         | Client and runtime                     |
+| ------------------------------------------ | ---------------------------------------------------------------- | -------------------------------------- |
+| [Application logs](application-logs/README.md) | Which release and payment gateway are producing checkout errors? | JavaScript SDK 0.3.0, Node.js 20 or later |
+| [Bluesky activity](bluesky-events/README.md) | Are we seeing new posts, replies, or reactions to existing posts? | Go SDK 0.7.0, Go 1.26 or later          |
 
-| Scene | What you will do | Prerequisites |
-| --- | --- | --- |
-| [Bluesky events](bluesky-events/README.md) | Build a checked activity briefing from a sample, then compare live Bluesky observations | ScopeDB Cloud account, Go 1.24+, Git |
+Both programs keep running until Ctrl+C. Their READMEs cover connection setup, expected observations, shutdown, and verification. The [ScopeDB tutorials](https://www.scopedb.io/docs/guides#follow-a-complete-example) provide illustrated Console walkthroughs.
 
-## Run a demo
+## Start
 
-Open a scene's README and follow its instructions. It lists the required ScopeDB connection, tools, tested versions, and any additional services. Each walkthrough includes expected results and ways to keep exploring with your data.
-
-Keep credentials in local environment variables or an ignored `.env` file. Committed `.env.example` files contain placeholders only.
-
-## Repository layout
-
-```text
-README.md             Demo catalog and entry point
-CONTRIBUTING.md       Guidelines for adding a scene
-bluesky-events/       Public event capture and a Console walkthrough
+```bash
+git clone https://github.com/scopedb/demo-scene.git scopedb-demos
+cd scopedb-demos
 ```
 
-Add each scene directly under the repository root using a descriptive directory name. Keep scene-specific code, queries, configuration, and assets together so the scene can be run independently.
+Choose a project, configure the ScopeDB API address and API key for your workspace, then follow its README. Use a test workspace; writes, storage, and queries consume its normal allowance. Keep credentials in local environment variables and generated captures outside source control.
 
-## Add a demo
+Each project owns its program, pinned dependencies, tests, and saved ScopeQL queries. Programs and verification inputs live here; website tutorials refer to this checkout rather than carrying a second copy.
 
-Follow the [contribution guide](CONTRIBUTING.md). Write the walkthrough for someone running the demo for the first time, with working commands and visible results at each step.
+## Contribute
 
-## Resources
-
-- [ScopeDB](https://www.scopedb.io/)
-- [Documentation](https://www.scopedb.io/docs)
-- [ScopeDB Console](https://console.scopedb.cloud/)
+Follow [CONTRIBUTING.md](CONTRIBUTING.md). Start with the question and intended result, use the appropriate official SDK, and make the default demo produce or ingest events continuously. Provide a bounded verification path for repeatable checks.
