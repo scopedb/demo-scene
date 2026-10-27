@@ -3,6 +3,7 @@
 # Local credentials and configuration
 .env
 .env.*
+env.sh
 !.env.example
 !.env.*.example
 
