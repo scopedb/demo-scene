@@ -71,3 +71,13 @@ jobs:
           cache-dependency-path: bluesky-events/go.sum
       - run: go vet ./...
       - run: go test -race ./...
+
+  agent-runs:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-runs
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.91.0
+      - run: cargo test --locked

@@ -1,0 +1,5 @@
+FROM guide_agents.spans
+WHERE var['run_id']::string = 'agent-first'
+AGGREGATE count() AS spans,
+    count_distinct(trace_id) AS traces,
+    sum(if(status = 'error', 1, 0)) AS errors

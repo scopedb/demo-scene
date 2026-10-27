@@ -1,0 +1,9 @@
+CREATE TABLE guide_agents.spans (
+    time timestamp,
+    trace_id string,
+    span_id string,
+    step string,
+    status string,
+    duration_ms int,
+    var object
+)

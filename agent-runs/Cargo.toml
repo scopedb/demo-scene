@@ -1,0 +1,17 @@
+[package]
+name = "agent-runs"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91.0"
+publish = false
+
+[dependencies]
+jiff = "0.2"
+scopedb-client = "=0.4.2"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tiny_http = "0.12"
+zstd = "0.14"

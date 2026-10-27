@@ -6,10 +6,11 @@ Continuously produce or collect events, write them with an official ScopeDB SDK,
 
 Each scene asks one question and shares its ScopeQL queries and expected results across language implementations. A dash means that implementation does not exist yet.
 
-| Scene                                          | Question                                                          | JavaScript                    | Go                              | Rust                            |
-| ---------------------------------------------- | ----------------------------------------------------------------- | ----------------------------- | ------------------------------- | ------------------------------- |
-| [Application logs](application-logs/README.md) | Which release and payment gateway are producing checkout errors?  | [0.3.0](application-logs/js/) | [0.7.0](application-logs/go/)   | [0.4.2](application-logs/rust/) |
-| [Bluesky activity](bluesky-events/README.md)   | Are we seeing new posts, replies, or reactions to existing posts? | —                             | [0.7.0](bluesky-events/main.go) | —                               |
+| Scene                                          | Question                                                            | JavaScript                    | Go                              | Rust                            |
+| ---------------------------------------------- | ------------------------------------------------------------------- | ----------------------------- | ------------------------------- | ------------------------------- |
+| [Application logs](application-logs/README.md) | Which release and payment gateway are producing checkout errors?    | [0.3.0](application-logs/js/) | [0.7.0](application-logs/go/)   | [0.4.2](application-logs/rust/) |
+| [Bluesky activity](bluesky-events/README.md)   | Are we seeing new posts, replies, or reactions to existing posts?   | —                             | [0.7.0](bluesky-events/main.go) | —                               |
+| [Agent runs](agent-runs/README.md)             | Is a slow agent run waiting on a model or a tool timeout and retry? | —                             | —                               | [0.4.2](agent-runs/src/main.rs) |
 
 Every program keeps running until Ctrl+C. Scene READMEs cover connection setup, expected observations, shutdown, and verification. The [ScopeDB tutorials](https://www.scopedb.io/docs/guides#follow-a-complete-example) provide illustrated Console walkthroughs.
 
