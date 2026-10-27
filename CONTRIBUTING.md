@@ -13,13 +13,17 @@ Keep the scene self-contained. Use the files and directories it needs, for examp
   README.md          Story, setup, walkthrough, expected results, and next steps
   .env.example       Connection and configuration placeholders, if needed
   compose.yaml       Supporting services, if needed
-  app/               Sample application or data generator
   queries/           ScopeQL setup and investigation statements
   data/              Small, reusable sample inputs
   assets/            Diagrams, screenshots, and dashboard definitions
+  js/                JavaScript implementation
+  go/                Go implementation
+  rust/              Rust implementation
 ```
 
-Choose the language and official ScopeDB SDK that fit the scene. Make event production or ingestion continuous by default, with Ctrl+C shutdown that settles buffered writes. Keep finite modes explicit for verification. Add shared utilities when multiple working demos need the same behavior.
+Keep the scene story, queries, and shared inputs at the scene root. Put each implementation in a language-named directory once the scene supports more than one SDK; a scene with a single implementation may keep it at the root until a second language is added. Every implementation must use the same table definition, run labels, and observable result so the shared queries work unchanged.
+
+Choose an official ScopeDB SDK. Make event production or ingestion continuous by default, with Ctrl+C shutdown that settles buffered writes. Keep finite modes explicit for verification. Add shared utilities when multiple working demos need the same behavior.
 
 ## Make the walkthrough reproducible
 
@@ -33,7 +37,7 @@ Choose the language and official ScopeDB SDK that fit the scene. Make event prod
 
 ## Check and register the demo
 
-Run the documented setup and walkthrough from a fresh checkout. Verify the observable result, then confirm that the user can continue with another sample or repeat an import while keeping earlier data. Include automated checks when they protect a meaningful behavior or boundary.
+Run the documented setup and walkthrough from a fresh checkout. Verify the observable result, then confirm that the user can continue with another sample or repeat an import while keeping earlier data. Run the same bounded verification for every implementation in a scene and confirm they produce equivalent observations. Include automated checks when they protect a meaningful behavior or boundary.
 
 For performance demonstrations, record the dataset size, query, index state, hardware or compute configuration, cache conditions, and measurement method. Report measured results with that context.
 

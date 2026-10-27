@@ -1,0 +1,16 @@
+[package]
+name = "application-logs"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+publish = false
+
+[dependencies]
+jiff = "0.2"
+scopedb-client = "=0.4.2"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+zstd = "0.13"

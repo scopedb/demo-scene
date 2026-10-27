@@ -9,23 +9,54 @@ permissions:
   contents: read
 
 jobs:
-  application-logs:
+  application-logs-js:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         node: [20, 24]
     defaults:
       run:
-        working-directory: application-logs
+        working-directory: application-logs/js
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-          cache-dependency-path: application-logs/package-lock.json
+          cache-dependency-path: application-logs/js/package-lock.json
       - run: npm ci
       - run: npm test
+
+  application-logs-go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: application-logs/go
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: application-logs/go/go.mod
+          cache-dependency-path: application-logs/go/go.sum
+      - run: go vet ./...
+      - run: go test -race ./...
+
+  application-logs-rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: application-logs/rust
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: application-logs/rust -> target
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
 
   bluesky-events:
     runs-on: ubuntu-latest

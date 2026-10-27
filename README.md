@@ -2,14 +2,16 @@
 
 Continuously produce or collect events, write them with an official ScopeDB SDK, and follow the arriving data to a useful answer in Console.
 
-## Choose a demo
+## Choose a scene
 
-| Demo                                       | Question                                                         | Client and runtime                     |
-| ------------------------------------------ | ---------------------------------------------------------------- | -------------------------------------- |
-| [Application logs](application-logs/README.md) | Which release and payment gateway are producing checkout errors? | JavaScript SDK 0.3.0, Node.js 20 or later |
-| [Bluesky activity](bluesky-events/README.md) | Are we seeing new posts, replies, or reactions to existing posts? | Go SDK 0.7.0, Go 1.26 or later          |
+Each scene asks one question and shares its ScopeQL queries and expected results across language implementations. A dash means that implementation does not exist yet.
 
-Both programs keep running until Ctrl+C. Their READMEs cover connection setup, expected observations, shutdown, and verification. The [ScopeDB tutorials](https://www.scopedb.io/docs/guides#follow-a-complete-example) provide illustrated Console walkthroughs.
+| Scene                                          | Question                                                          | JavaScript                    | Go                              | Rust                            |
+| ---------------------------------------------- | ----------------------------------------------------------------- | ----------------------------- | ------------------------------- | ------------------------------- |
+| [Application logs](application-logs/README.md) | Which release and payment gateway are producing checkout errors?  | [0.3.0](application-logs/js/) | [0.7.0](application-logs/go/)   | [0.4.2](application-logs/rust/) |
+| [Bluesky activity](bluesky-events/README.md)   | Are we seeing new posts, replies, or reactions to existing posts? | —                             | [0.7.0](bluesky-events/main.go) | —                               |
+
+Every program keeps running until Ctrl+C. Scene READMEs cover connection setup, expected observations, shutdown, and verification. The [ScopeDB tutorials](https://www.scopedb.io/docs/guides#follow-a-complete-example) provide illustrated Console walkthroughs.
 
 ## Start
 
@@ -18,10 +20,10 @@ git clone https://github.com/scopedb/demo-scene.git scopedb-demos
 cd scopedb-demos
 ```
 
-Choose a project, configure the ScopeDB API address and API key for your workspace, then follow its README. Use a test workspace; writes, storage, and queries consume its normal allowance. Keep credentials in local environment variables and generated captures outside source control.
+Choose a scene and one of its SDKs, configure the ScopeDB API address and API key for your workspace, then follow the scene README. Use a test workspace; writes, storage, and queries consume its normal allowance. Keep credentials in local environment variables and generated captures outside source control.
 
-Each project owns its program, pinned dependencies, tests, and saved ScopeQL queries. Programs and verification inputs live here; website tutorials refer to this checkout rather than carrying a second copy.
+A scene owns its story, saved ScopeQL queries, shared data, and verification inputs. Each language directory owns its program, pinned dependencies, and tests. Programs and verification inputs live here; website tutorials refer to this checkout rather than carrying a second copy.
 
 ## Contribute
 
-Follow [CONTRIBUTING.md](CONTRIBUTING.md). Start with the question and intended result, use the appropriate official SDK, and make the default demo produce or ingest events continuously. Provide a bounded verification path for repeatable checks.
+Follow [CONTRIBUTING.md](CONTRIBUTING.md). Start with the question and intended result, use an official SDK, and make the default demo produce or ingest events continuously. Provide a bounded verification path for repeatable checks.
