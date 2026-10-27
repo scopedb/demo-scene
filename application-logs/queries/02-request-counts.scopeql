@@ -1,0 +1,4 @@
+FROM guide_logs.requests
+WHERE var['run_id']::string = 'checkout-first'
+AGGREGATE count() AS requests,
+    sum(if(level = 'error', 1, 0)) AS errors

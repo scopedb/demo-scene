@@ -1,0 +1,3 @@
+FROM guide_bluesky.events
+WHERE capture_id = 'first'
+AGGREGATE count() AS unique_events

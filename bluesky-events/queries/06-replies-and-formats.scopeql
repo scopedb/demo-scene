@@ -1,0 +1,8 @@
+FROM guide_bluesky.events
+WHERE capture_id = 'first'
+    AND collection = 'app.bsky.feed.post' AND operation = 'create'
+SELECT raw['record']['reply'] IS NOT NULL AS is_reply,
+    TRY(raw['record']['embed']['$type']::string) AS embed_type
+GROUP BY is_reply, embed_type
+AGGREGATE count() AS posts
+ORDER BY posts DESC, is_reply, embed_type

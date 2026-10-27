@@ -1,0 +1,9 @@
+FROM guide_logs.requests
+WHERE var['run_id']::string = 'checkout-first'
+SELECT level, var['release']::string AS release,
+    var['gateway']::string AS gateway
+GROUP BY release, gateway
+AGGREGATE count() AS requests,
+    sum(if(level = 'error', 1, 0)) AS errors
+SELECT *, 100.0 * errors / requests AS error_percent
+ORDER BY release, gateway

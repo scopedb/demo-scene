@@ -4,36 +4,36 @@ Start with the question the audience should be able to answer. Build a short wal
 
 ## Organize the scene
 
-Create a top-level directory with a descriptive, lowercase, hyphenated name. Copy `_template/README.md` into it and replace the prompts with the actual walkthrough.
+Create a top-level directory with a descriptive, lowercase, hyphenated name. Write its README as a tutorial that takes a user from prerequisites to useful results and further exploration.
 
 Keep the scene self-contained. Use the files and directories it needs, for example:
 
 ```text
 <scene-name>/
-  README.md          Story, setup, walkthrough, expected results, and cleanup
+  README.md          Story, setup, walkthrough, expected results, and next steps
   .env.example       Connection and configuration placeholders, if needed
   compose.yaml       Supporting services, if needed
   app/               Sample application or data generator
-  queries/           ScopeQL setup, investigation, and cleanup statements
+  queries/           ScopeQL setup and investigation statements
   data/              Small, reusable sample inputs
   assets/            Diagrams, screenshots, and dashboard definitions
 ```
 
-Choose the language and tools that fit the scene. Add shared utilities when multiple working demos need the same behavior.
+Choose the language and official ScopeDB SDK that fit the scene. Make event production or ingestion continuous by default, with Ctrl+C shutdown that settles buffered writes. Keep finite modes explicit for verification. Add shared utilities when multiple working demos need the same behavior.
 
 ## Make the walkthrough reproducible
 
 - State the audience's question, the ScopeDB capability being demonstrated, and the expected outcome.
 - List prerequisites, tested versions, setup time, demo duration, and any paid services or resources needed.
-- Provide a small deterministic dataset or a generator with a fixed seed and a bounded default workload. Document the source and license of third-party data.
+- Provide a small deterministic dataset, a generator with a fixed seed, or a bounded public-source capture that users can replay locally. Document the source, applicable usage guidance, and any limits on reproducibility.
 - Show how to configure the connection, load data, confirm ingestion is complete, run the investigation, and recognize the expected result.
-- Explain how to reset and repeat the scene. Document the exact resources cleanup removes, and scope cleanup to resources created by that scene.
+- Keep the user's data and workspace available for further exploration. Explain how to add another dataset or repeat an import without losing earlier work.
 - Keep credentials, generated datasets, logs, and local state out of commits. Use placeholders in example configuration and a temporary directory for disposable output.
 - Pin dependencies and images where applicable, and record the environment and date of the last successful run.
 
 ## Check and register the demo
 
-Run the documented setup, walkthrough, and cleanup from a fresh checkout. Verify the observable result and repeat the demo after cleanup. Include automated checks when they protect a meaningful behavior or boundary.
+Run the documented setup and walkthrough from a fresh checkout. Verify the observable result, then confirm that the user can continue with another sample or repeat an import while keeping earlier data. Include automated checks when they protect a meaningful behavior or boundary.
 
 For performance demonstrations, record the dataset size, query, index state, hardware or compute configuration, cache conditions, and measurement method. Report measured results with that context.
 

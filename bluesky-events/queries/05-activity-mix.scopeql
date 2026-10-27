@@ -1,0 +1,5 @@
+FROM guide_bluesky.events
+WHERE capture_id = 'first' AND operation = 'create'
+GROUP BY collection
+AGGREGATE count() AS creates
+ORDER BY creates DESC, collection

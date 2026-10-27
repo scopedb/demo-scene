@@ -1,0 +1,42 @@
+name: Check demos
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  application-logs:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [20, 24]
+    defaults:
+      run:
+        working-directory: application-logs
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: application-logs/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  bluesky-events:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bluesky-events
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: bluesky-events/go.mod
+          cache-dependency-path: bluesky-events/go.sum
+      - run: go vet ./...
+      - run: go test -race ./...

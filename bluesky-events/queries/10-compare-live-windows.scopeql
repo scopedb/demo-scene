@@ -1,0 +1,9 @@
+FROM guide_bluesky.events
+WHERE capture_id IN ('live-first', 'live-second')
+    AND collection = 'app.bsky.feed.post' AND operation = 'create'
+GROUP BY capture_id
+AGGREGATE min(event_time) AS first_seen, max(event_time) AS last_seen,
+    count() AS posts,
+    sum(if(raw['record']['reply'] IS NOT NULL, 1, 0)) AS replies
+SELECT *, 100.0 * replies / posts AS reply_percent
+ORDER BY capture_id
