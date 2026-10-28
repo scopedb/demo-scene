@@ -71,3 +71,15 @@ jobs:
           cache-dependency-path: bluesky-events/go.sum
       - run: go vet ./...
       - run: go test -race ./...
+
+  agent-runs:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-runs
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - run: python3 -m unittest discover -s tests -v

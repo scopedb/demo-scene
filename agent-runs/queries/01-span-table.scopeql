@@ -1,0 +1,14 @@
+CREATE TABLE IF NOT EXISTS guide_agents.codex_spans (
+    time timestamp,
+    end_time timestamp,
+    trace_id string,
+    span_id string,
+    parent_span_id string,
+    name string,
+    status string,
+    duration_ns int,
+    run_id string,
+    model string,
+    tool string,
+    call_id string
+)

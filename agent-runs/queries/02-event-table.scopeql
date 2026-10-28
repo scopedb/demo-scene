@@ -1,0 +1,12 @@
+CREATE TABLE IF NOT EXISTS guide_agents.codex_events (
+    time timestamp,
+    trace_id string,
+    span_id string,
+    event string,
+    run_id string,
+    model string,
+    tool string,
+    call_id string,
+    duration_ms int,
+    success boolean
+)

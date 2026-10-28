@@ -1,0 +1,5 @@
+FROM guide_agents.codex_spans
+WHERE run_id = 'agent-first' AND name = 'run_turn'
+SELECT time, end_time, trace_id, duration_ns / 1000000.0 AS elapsed_ms
+ORDER BY time DESC
+LIMIT 10
