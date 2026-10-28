@@ -1,0 +1,4 @@
+FROM guide_agents.codex_events
+WHERE run_id = 'agent-failure' AND event = 'codex.tool_result'
+SELECT time, trace_id, span_id, tool, call_id, success, duration_ms
+ORDER BY time, trace_id, span_id

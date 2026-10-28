@@ -1,4 +1,4 @@
-"""Run Claude Code with a local Telescope receiver and confirmed ScopeDB delivery."""
+"""Run a read-only Codex task and confirm its telemetry delivery to ScopeDB."""
 
 import argparse
 import hashlib
@@ -41,9 +41,10 @@ PROMPT = (
     "and unconfirmed writes. Cite the exact files. Do not modify files."
 )
 FAILURE_PROMPT = (
-    "Use Read to check bluesky-events/collector.go first; this may be an old filename. "
-    "Then locate the current entry point and explain how it handles shutdown. "
-    "Do not modify files."
+    "First run pwd with the shell tool's working directory set to the obsolete "
+    "bluesky-events/legacy directory under this repository. Do not check that "
+    "directory first. Then locate the current Bluesky entry point and explain "
+    "how it handles shutdown. Do not modify files."
 )
 
 
@@ -136,6 +137,15 @@ def query(binary, environment, statement):
     return json.loads(result.stdout)
 
 
+def codex_environment():
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("SCOPEDB_", "TELESCOPE_", "OTEL_"))
+        and key not in ("TRACEPARENT", "TRACESTATE")
+    }
+
+
 def run(args):
     run_id = os.environ.get("SCOPEDB_DEMO_RUN", str(uuid.uuid4()))
     if not re.fullmatch(r"[A-Za-z0-9-]{1,100}", run_id):
@@ -145,45 +155,43 @@ def run(args):
     for name in ("SCOPEDB_ENDPOINT", "SCOPEDB_API_KEY"):
         if not os.environ.get(name):
             raise RuntimeError(f"Set {name} before running")
-    if not args.replay:
-        auth_environment = {
-            key: value
-            for key, value in os.environ.items()
-            if not key.startswith(("SCOPEDB_", "TELESCOPE_", "OTEL_"))
-        }
-        auth = subprocess.run(
-            [args.claude, "auth", "status"],
-            env=auth_environment,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-        if auth.returncode or not json.loads(auth.stdout).get("loggedIn"):
-            raise RuntimeError(
-                "Sign in to Claude Code with 'claude auth login', then run this demo again"
-            )
+    environment = codex_environment()
+    version = subprocess.check_output(
+        [args.codex, "--version"], env=environment, text=True, timeout=15
+    ).strip()
+    match = re.fullmatch(r"codex-cli (\d+)\.(\d+)\.(\d+)(?:[-+].*)?", version)
+    if not match or tuple(map(int, match.groups())) < (0, 160, 0):
+        raise RuntimeError("Use Codex CLI 0.160.0 or later for this example")
+    auth = subprocess.run(
+        [args.codex, "login", "status"],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    if auth.returncode:
+        raise RuntimeError("Configure Codex authentication with 'codex login' first")
     binary = telescope_binary(args.telescope)
     collector_env = {
         key: value
         for key, value in os.environ.items()
         if not key.startswith("TELESCOPE_")
     }
+    tables = {"traces": "codex_spans", "logs": "codex_events"}
     query(binary, collector_env, "CREATE SCHEMA IF NOT EXISTS guide_agents")
-    query(
-        binary,
-        collector_env,
-        (ROOT / "queries/01-table-definition.scopeql").read_text(),
-    )
-    previous = query(
-        binary,
-        collector_env,
-        f"FROM guide_agents.spans WHERE run_id = '{run_id}' AGGREGATE count() AS spans",
-    )
-    if previous[0]["spans"]:
-        raise RuntimeError(
-            "This run ID already has spans; choose a new SCOPEDB_DEMO_RUN"
+    for definition in ("01-span-table.scopeql", "02-event-table.scopeql"):
+        query(binary, collector_env, (ROOT / "queries" / definition).read_text())
+    for table in tables.values():
+        previous = query(
+            binary,
+            collector_env,
+            f"FROM guide_agents.{table} WHERE run_id = '{run_id}' AGGREGATE count() AS records",
         )
+        if previous[0]["records"]:
+            raise RuntimeError(
+                "This run ID already has records; choose a new SCOPEDB_DEMO_RUN"
+            )
 
     with tempfile.TemporaryDirectory(prefix="scopedb-agent-") as directory:
         directory = Path(directory)
@@ -193,12 +201,13 @@ def run(args):
             (4317, 4318, 8080, 8888), (grpc_port, otlp_port, http_port, metrics_port)
         ):
             config = config.replace(f"127.0.0.1:{original}", f"127.0.0.1:{selected}")
+        config = config.replace("value: example-run", f'value: "{run_id}"')
         config_path = directory / "telescope.yaml"
         config_path.write_text(config)
         collector_env["TELESCOPE_INTERNAL_METRICS_URL"] = (
             f"http://127.0.0.1:{metrics_port}/metrics"
         )
-        endpoint = f"http://127.0.0.1:{otlp_port}/v1/traces"
+        endpoint = f"http://127.0.0.1:{otlp_port}"
         operations = f"http://127.0.0.1:{http_port}"
         child = None
         collector = None
@@ -207,9 +216,9 @@ def run(args):
         def interrupted(number, _frame):
             if child is None or child.poll() is not None:
                 raise KeyboardInterrupt
-            # Terminal Ctrl+C already reaches Claude in the foreground process group.
-            # Keep the receiver alive while Claude interrupts a turn or flushes on exit.
-            if number == signal.SIGTERM and child.poll() is None:
+            # Keep Telescope available for the child's shutdown exports.
+            # Terminal Ctrl+C already reaches Codex in the foreground process group.
+            if number == signal.SIGTERM:
                 child.terminate()
 
         for number in (signal.SIGINT, signal.SIGTERM):
@@ -229,100 +238,76 @@ def run(args):
                     15,
                     "starting the receiver",
                 )
-                print(f"Tracing Claude Code. Run ID: {run_id}", flush=True)
-                print(f"Local receiver: {endpoint}", flush=True)
-                if args.replay:
-                    payload = json.loads(args.replay.read_text())
-                    for resource in payload.get("resourceSpans", []):
-                        attributes = resource.setdefault("resource", {}).setdefault(
-                            "attributes", []
-                        )
-                        attributes[:] = [
-                            item
-                            for item in attributes
-                            if item["key"] != "scopedb.demo.run_id"
-                        ]
-                        attributes.append(
-                            {
-                                "key": "scopedb.demo.run_id",
-                                "value": {"stringValue": run_id},
-                            }
-                        )
-                    request = urllib.request.Request(
-                        endpoint,
-                        json.dumps(payload).encode(),
-                        {"Content-Type": "application/json"},
-                    )
-                    with urllib.request.urlopen(request, timeout=15) as response:
-                        response.read()
-                    code = 0
-                else:
-                    environment = {
-                        key: value
-                        for key, value in os.environ.items()
-                        if not key.startswith(("SCOPEDB_", "TELESCOPE_", "OTEL_"))
-                        and key not in ("TRACEPARENT", "TRACESTATE")
-                    }
-                    environment.update(
-                        {
-                            "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
-                            "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
-                            "OTEL_TRACES_EXPORTER": "otlp",
-                            "OTEL_METRICS_EXPORTER": "none",
-                            "OTEL_LOGS_EXPORTER": "none",
-                            "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "http/json",
-                            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": endpoint,
-                            "OTEL_TRACES_EXPORT_INTERVAL": "1000",
-                            "OTEL_RESOURCE_ATTRIBUTES": f"scopedb.demo.run_id={run_id}",
-                            "OTEL_LOG_USER_PROMPTS": "0",
-                            "OTEL_LOG_TOOL_DETAILS": "0",
-                            "OTEL_LOG_TOOL_CONTENT": "0",
-                        }
-                    )
-                    command = [
-                        args.claude,
-                        "--tools",
-                        "Read,Glob,Grep",
-                        "--allowedTools",
-                        "Read,Glob,Grep",
-                    ]
-                    if not args.interactive:
-                        command.append("-p")
+                print(f"Tracing Codex. Run ID: {run_id}", flush=True)
+                command = [
+                    args.codex,
+                    "exec",
+                    "--ignore-user-config",
+                    "--ephemeral",
+                    "--sandbox",
+                    "read-only",
+                    "--config",
+                    'approval_policy="never"',
+                    "--config",
+                    'model_reasoning_effort="low"',
+                    "--config",
+                    "otel.log_user_prompt=false",
+                    "--config",
+                    'otel.metrics_exporter="none"',
+                ]
+                for signal_name, setting in (
+                    ("traces", "trace_exporter"),
+                    ("logs", "exporter"),
+                ):
                     command.extend(
                         [
-                            "--",
-                            args.prompt
-                            or (FAILURE_PROMPT if args.failure_demo else PROMPT),
+                            "--config",
+                            f'otel.{setting}={{otlp-http={{endpoint="{endpoint}/v1/{signal_name}",protocol="json"}}}}',
                         ]
                     )
-                    child = subprocess.Popen(command, cwd=ROOT.parent, env=environment)
-                    code = child.wait()
+                if args.model:
+                    command.extend(["--model", args.model])
+                command.extend(
+                    [
+                        "--",
+                        args.prompt
+                        or (FAILURE_PROMPT if args.failure_demo else PROMPT),
+                    ]
+                )
+                child = subprocess.Popen(command, cwd=ROOT.parent, env=environment)
+                code = child.wait()
 
                 print("Waiting for ScopeDB delivery...", flush=True)
-                no_spans_deadline = time.monotonic() + 2
+                no_data_deadline = time.monotonic() + 2
 
                 def settled():
                     status = read_json(operations + "/v1/ingestion/status")
-                    traces = next(
-                        item for item in status["signals"] if item["signal"] == "traces"
-                    )
-                    if traces["unknown"] or traces["dropped"]:
+                    signals = {item["signal"]: item for item in status["signals"]}
+                    if any(
+                        item["unknown"] or item["dropped"] for item in signals.values()
+                    ):
                         raise RuntimeError(
-                            "Some spans were dropped or have an unknown delivery outcome; inspect this run before retrying"
+                            "Some records were dropped or have an unknown delivery outcome; inspect this run before retrying"
                         )
-                    if not traces["received"] and time.monotonic() >= no_spans_deadline:
-                        raise RuntimeError(
-                            "Claude Code exported no spans; check tracing settings or run another task"
-                        )
-                    if traces["received"] and traces["written"] == traces["received"]:
-                        return traces["written"]
+                    missing = [
+                        label
+                        for name, label in (("traces", "spans"), ("logs", "events"))
+                        if not signals[name]["received"]
+                    ]
+                    if missing:
+                        if time.monotonic() >= no_data_deadline:
+                            raise RuntimeError(
+                                f"Codex exported no {' or '.join(missing)}; check CLI telemetry support"
+                            )
+                        return None
+                    if all(
+                        item["written"] == item["received"] for item in signals.values()
+                    ):
+                        return {name: signals[name]["written"] for name in tables}
                     return None
 
                 written = wait_for(
-                    collector,
-                    settled,
-                    30,
-                    "confirming span delivery (check Claude telemetry if no spans arrive)",
+                    collector, settled, 30, "confirming traces and events delivery"
                 )
         except Exception:
             log_path = directory / "telescope.log"
@@ -355,48 +340,43 @@ def run(args):
                     )
             for number, handler in old_handlers.items():
                 signal.signal(number, handler)
-        stored = query(
-            binary,
-            collector_env,
-            f"FROM guide_agents.spans WHERE run_id = '{run_id}' AGGREGATE count() AS spans",
-        )[0]["spans"]
-        if stored != written:
-            raise RuntimeError(
-                f"Stored span count ({stored}) differs from confirmed delivery ({written}); inspect this run"
-            )
-        print(f"Committed {stored} spans. Run ID: {run_id}", flush=True)
+        for signal_name, table in tables.items():
+            stored = query(
+                binary,
+                collector_env,
+                f"FROM guide_agents.{table} WHERE run_id = '{run_id}' AGGREGATE count() AS records",
+            )[0]["records"]
+            if stored != written[signal_name]:
+                raise RuntimeError(
+                    f"Stored count for {table} ({stored}) differs from confirmed delivery ({written[signal_name]}); inspect this run"
+                )
+        print(
+            f"Committed {written['traces']} spans and {written['logs']} events. Run ID: {run_id}",
+            flush=True,
+        )
         return code
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--interactive",
-        action="store_true",
-        help="keep Claude open for more read-only prompts; use /exit to finish",
-    )
-    parser.add_argument(
         "--failure-demo",
         action="store_true",
-        help="ask Claude to check an obsolete filename before locating the current entry point",
+        help="ask Codex to try an obsolete working directory before locating the entry point",
     )
+    parser.add_argument("--prompt", help="use another read-only repository task")
     parser.add_argument(
-        "--prompt", help="use another read-only task in this repository"
-    )
-    parser.add_argument(
-        "--replay",
-        type=Path,
-        help="send an existing OTLP JSON capture instead of starting Claude",
+        "--model", help="select a model available to your Codex account"
     )
     parser.add_argument(
         "--telescope",
         default=os.environ.get("TELESCOPE_BINARY"),
         help="use an installed Telescope v0.3.0 instead of downloading it",
     )
-    parser.add_argument("--claude", default="claude", help="Claude Code executable")
+    parser.add_argument("--codex", default="codex", help="Codex CLI executable")
     args = parser.parse_args()
-    if args.replay and (args.interactive or args.failure_demo or args.prompt):
-        parser.error("--replay cannot be combined with Claude task options")
+    if args.prompt and args.failure_demo:
+        parser.error("choose --prompt or --failure-demo")
     try:
         return run(args)
     except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:

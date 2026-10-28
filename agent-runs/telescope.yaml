@@ -14,7 +14,7 @@ shutdown_timeout: 15s
 
 signals:
   traces:
-    table: scopedb.guide_agents.spans
+    table: scopedb.guide_agents.codex_spans
     mapping:
       time: span.start_time
       end_time: span.end_time
@@ -25,6 +25,39 @@ signals:
       status: span.status.code
       duration_ns: span.duration_ns
       run_id:
-        source: resource.attributes["scopedb.demo.run_id"]
+        value: example-run
+      model:
+        source: span.attributes["model"]
         cast: string
-      var: span.attributes
+      tool:
+        source: span.attributes["tool_name"]
+        cast: string
+      call_id:
+        source: span.attributes["call_id"]
+        cast: string
+  logs:
+    table: scopedb.guide_agents.codex_events
+    mapping:
+      time: log.timestamp
+      trace_id: log.trace_id
+      span_id: log.span_id
+      event:
+        source: log.attributes["event.name"]
+        cast: string
+      run_id:
+        value: example-run
+      model:
+        source: log.attributes["model"]
+        cast: string
+      tool:
+        source: log.attributes["tool_name"]
+        cast: string
+      call_id:
+        source: log.attributes["call_id"]
+        cast: string
+      duration_ms:
+        source: log.attributes["duration_ms"]
+        cast: int
+      success:
+        source: log.attributes["success"]
+        cast: boolean

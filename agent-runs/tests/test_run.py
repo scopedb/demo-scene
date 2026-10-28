@@ -22,106 +22,119 @@ demo = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(demo)
 
 
-def capture(failure=False):
+def attribute(key, value):
+    field = (
+        "boolValue"
+        if isinstance(value, bool)
+        else "intValue"
+        if isinstance(value, int)
+        else "stringValue"
+    )
+    return {"key": key, "value": {field: str(value) if field == "intValue" else value}}
+
+
+def captures(failure=False):
     trace = "0123456789abcdef0123456789abcdef"
-    definitions = [
-        ("claude_code.interaction", "0000000000000001", "", 0, 9000, {}),
+    spans = []
+    for name, span_id, parent, offset, duration, attrs in (
+        ("run_turn", "0000000000000001", "", 0, 9000, {}),
         (
-            "claude_code.llm_request",
+            "try_run_sampling_request",
             "0000000000000002",
             "0000000000000001",
             0,
             3000,
-            {"model": "test-model", "gen_ai.usage.input_tokens": 120},
+            {"model": "test-model"},
         ),
         (
-            "claude_code.tool",
+            "exec_command",
             "0000000000000003",
             "0000000000000001",
             3000,
             500,
-            {"tool_name": "Read"},
+            {"tool_name": "exec_command", "call_id": "test-call"},
         ),
         (
-            "claude_code.tool.execution",
+            "unified_exec.exec_command",
             "0000000000000004",
             "0000000000000003",
             3100,
             300,
-            {"tool_name": "Read"},
+            {},
         ),
-        (
-            "claude_code.llm_request",
-            "0000000000000005",
-            "0000000000000001",
-            3500,
-            2000,
-            {"model": "test-model"},
-        ),
-        (
-            "claude_code.tool",
-            "0000000000000006",
-            "0000000000000001",
-            5500,
-            400,
-            {"tool_name": "Grep"},
-        ),
-        (
-            "claude_code.tool.execution",
-            "0000000000000007",
-            "0000000000000006",
-            5600,
-            200,
-            {"tool_name": "Grep"},
-        ),
-    ]
-    spans = []
-    for name, span_id, parent, offset, duration, attributes in definitions:
-        error = failure and span_id == "0000000000000004"
+    ):
         spans.append(
             {
                 "traceId": trace,
                 "spanId": span_id,
                 "parentSpanId": parent,
                 "name": name,
-                "kind": 1,
                 "startTimeUnixNano": str(1793100000000000000 + offset * 1000000),
                 "endTimeUnixNano": str(
                     1793100000000000000 + (offset + duration) * 1000000
                 ),
-                "status": {"code": 2 if error else 0},
+                "status": {"code": 0},
                 "attributes": [
-                    {
-                        "key": key,
-                        "value": {"stringValue": value}
-                        if isinstance(value, str)
-                        else {"intValue": str(value)},
-                    }
-                    for key, value in attributes.items()
+                    attribute(k, v)
+                    for k, v in {
+                        **attrs,
+                        "cwd": "excluded-path",
+                        "arguments": "excluded-arguments",
+                        "output": "excluded-output",
+                    }.items()
                 ],
             }
         )
+    resource = {
+        "attributes": [
+            attribute("service.name", "codex"),
+            attribute("user.email", "excluded-identity"),
+        ]
+    }
+    logs = [
+        {
+            "timeUnixNano": "1793100003500000000",
+            "traceId": "abcdef0123456789abcdef0123456789",
+            "spanId": "0000000000000003",
+            "body": {"stringValue": "excluded-body"},
+            "attributes": [
+                attribute(k, v)
+                for k, v in {
+                    "event.name": "codex.tool_result",
+                    "tool_name": "exec_command",
+                    "call_id": "test-call",
+                    "model": "test-model",
+                    "duration_ms": "500",
+                    "success": "false" if failure else "true",
+                    "arguments": "excluded-arguments",
+                    "output": "excluded-output",
+                    "user.account_id": "excluded-account",
+                    "user.email": "excluded-identity",
+                }.items()
+            ],
+        }
+    ]
     return {
         "resourceSpans": [
             {
-                "resource": {
-                    "attributes": [
-                        {
-                            "key": "service.name",
-                            "value": {"stringValue": "claude-code"},
-                        },
-                    ]
-                },
-                "scopeSpans": [{"scope": {"name": "test-provider"}, "spans": spans}],
+                "resource": resource,
+                "scopeSpans": [{"scope": {"name": "fixture"}, "spans": spans}],
             }
-        ]
+        ],
+    }, {
+        "resourceLogs": [
+            {
+                "resource": resource,
+                "scopeLogs": [{"scope": {"name": "fixture"}, "logRecords": logs}],
+            }
+        ],
     }
 
 
 class Destination:
-    def __init__(self, previous=0, fail_append=False):
-        self.rows = []
-        self.previous = previous
+    def __init__(self, previous_table=None, fail_append=False):
+        self.rows = {"codex_spans": [], "codex_events": []}
+        self.previous_table = previous_table
         self.fail_append = fail_append
         self.requests = []
         owner = self
@@ -141,6 +154,12 @@ class Destination:
                     data = zstd.decompress(data)
                 if self.path == "/v1/statements":
                     statement = json.loads(data)["statement"]
+                    table = (
+                        "codex_events" if "codex_events" in statement else "codex_spans"
+                    )
+                    records = len(owner.rows[table]) + int(
+                        owner.previous_table == table
+                    )
                     count = "AGGREGATE count()" in statement
                     body = {
                         "status": "finished",
@@ -150,19 +169,17 @@ class Destination:
                         "result_set": {
                             "format": "json",
                             "metadata": {
-                                "fields": [{"name": "spans", "data_type": "int"}]
+                                "fields": [{"name": "records", "data_type": "int"}]
                                 if count
                                 else [],
                                 "num_rows": 1 if count else 0,
                             },
-                            "rows": [[str(owner.previous + len(owner.rows))]]
-                            if count
-                            else [],
+                            "rows": [[str(records)]] if count else [],
                         },
                     }
-                elif (
-                    self.path
-                    == "/v1/catalog/databases/scopedb/schemas/guide_agents/tables/spans/ingest"
+                elif self.path in (
+                    "/v1/catalog/databases/scopedb/schemas/guide_agents/tables/codex_spans/ingest",
+                    "/v1/catalog/databases/scopedb/schemas/guide_agents/tables/codex_events/ingest",
                 ):
                     if owner.fail_append:
                         self.send_response(403)
@@ -175,7 +192,8 @@ class Destination:
                         )
                         return
                     batch = [json.loads(line) for line in data.splitlines()]
-                    owner.rows.extend(batch)
+                    table = self.path.split("/")[-2]
+                    owner.rows[table].extend(batch)
                     body = {"status": "committed", "num_rows_inserted": len(batch)}
                 else:
                     self.send_error(404)
@@ -213,11 +231,18 @@ class LauncherTests(unittest.TestCase):
             "SCOPEDB_API_KEY": "test-key",
             "SCOPEDB_DEMO_RUN": "test-live",
             "TELESCOPE_BINARY": self.telescope,
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://excluded.invalid",
         }
 
     def invoke(self, *args):
         return subprocess.run(
-            [sys.executable, str(ROOT / "run.py"), *args],
+            [
+                sys.executable,
+                str(ROOT / "run.py"),
+                "--codex",
+                self.codex_fixture(),
+                *args,
+            ],
             env=self.environment,
             capture_output=True,
             text=True,
@@ -225,113 +250,165 @@ class LauncherTests(unittest.TestCase):
             check=False,
         )
 
-    def replay(self, failure=False):
-        path = self.directory / "capture.json"
-        path.write_text(json.dumps(capture(failure)))
-        return self.invoke("--replay", str(path))
-
-    def claude_fixture(self, logged_in=True):
-        path = self.directory / "claude"
+    def codex_fixture(self, logged_in=True, version="0.160.0"):
+        path = self.directory / "codex"
         path.write_text(f"""#!{sys.executable}
 import json,os,signal,sys,threading,urllib.request
-assert 'SCOPEDB_API_KEY' not in os.environ
-assert 'SCOPEDB_ENDPOINT' not in os.environ
-if sys.argv[1:] == ['auth','status']:
-    print(json.dumps({{'loggedIn': {logged_in!r}}})); sys.exit(0)
-assert os.environ['OTEL_LOG_TOOL_DETAILS'] == '0'
-assert os.environ['OTEL_EXPORTER_OTLP_TRACES_PROTOCOL'] == 'http/json'
-assert sys.argv[sys.argv.index('--tools')+1] == 'Read,Glob,Grep'
-if 'no-spans' in sys.argv:
-    sys.exit(0)
-payload = {capture()!r}
-resource=payload['resourceSpans'][0]
-run_id=os.environ['OTEL_RESOURCE_ATTRIBUTES'].split('=',1)[1]
-resource['resource']['attributes'].append({{'key':'scopedb.demo.run_id','value':{{'stringValue':run_id}}}})
-spans=resource['scopeSpans'][0]['spans']
-root=spans.pop(0)
-def send(batch):
-    resource['scopeSpans'][0]['spans']=batch
-    request=urllib.request.Request(os.environ['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'],json.dumps(payload).encode(),{{'Content-Type':'application/json'}})
+assert not any(key.startswith(('SCOPEDB_', 'TELESCOPE_', 'OTEL_')) for key in os.environ)
+if sys.argv[1:] == ['--version']:
+    print('codex-cli {version}'); sys.exit(0)
+if sys.argv[1:] == ['login','status']:
+    print('excluded-authentication-details',file=sys.stderr); sys.exit({0 if logged_in else 1})
+assert sys.argv[1] == 'exec'
+assert '--ignore-user-config' in sys.argv
+assert '--ephemeral' in sys.argv
+assert sys.argv[sys.argv.index('--sandbox')+1] == 'read-only'
+assert 'otel.log_user_prompt=false' in sys.argv
+assert 'otel.metrics_exporter="none"' in sys.argv
+if 'no-spans' in sys.argv: sys.exit(0)
+traces,logs={captures()!r}
+if 'obsolete' in sys.argv[-1]:
+    logs['resourceLogs'][0]['scopeLogs'][0]['logRecords'][0]['attributes']=[
+        dict(item,value={{'stringValue':'false'}}) if item['key']=='success' else item
+        for item in logs['resourceLogs'][0]['scopeLogs'][0]['logRecords'][0]['attributes']]
+root=traces['resourceSpans'][0]['scopeSpans'][0]['spans'].pop(0)
+def endpoint(setting):
+    override=next(arg for arg in sys.argv if arg.startswith('otel.'+setting+'={{'))
+    return override.split('endpoint="',1)[1].split('"',1)[0]
+def send(target,payload):
+    request=urllib.request.Request(target,json.dumps(payload).encode(),{{'Content-Type':'application/json'}})
     with urllib.request.urlopen(request,timeout=10) as response: response.read()
 stopping=threading.Event()
 signal.signal(signal.SIGINT,lambda *_:stopping.set())
 signal.signal(signal.SIGTERM,lambda *_:stopping.set())
-send(spans)
-if '-p' not in sys.argv:
-    print('Fixture Claude waiting',flush=True)
+send(endpoint('trace_exporter'),traces)
+if 'wait-for-signal' in sys.argv:
+    print('Fixture Codex waiting',flush=True)
     assert stopping.wait(15)
-send([root])
+traces['resourceSpans'][0]['scopeSpans'][0]['spans']=[root]
+send(endpoint('trace_exporter'),traces)
+if 'no-events' not in sys.argv: send(endpoint('exporter'),logs)
 sys.exit(3 if 'fail-exit' in sys.argv else 0)
 """)
         path.chmod(0o700)
         return str(path)
 
-    def test_native_mapping_preserves_ids_parentage_metadata_and_unset_status(self):
-        output = self.replay()
+    def test_native_projection_preserves_ids_and_excludes_private_fields(self):
+        output = self.invoke()
         self.assertEqual(output.returncode, 0, output.stderr + output.stdout)
-        self.assertIn("Committed 7 spans. Run ID: test-live", output.stdout)
-        self.assertEqual(len(self.destination.rows), 7)
-        rows = {row["span_id"]: row for row in self.destination.rows}
-        self.assertEqual(rows["0000000000000004"]["parent_span_id"], "0000000000000003")
-        self.assertEqual(rows["0000000000000003"]["parent_span_id"], "0000000000000001")
-        self.assertEqual(
-            rows["0000000000000002"]["var"]["gen_ai.usage.input_tokens"], 120
-        )
-        self.assertEqual(rows["0000000000000004"]["duration_ns"], 300000000)
-        self.assertTrue(all(row["status"] == "unset" for row in rows.values()))
-        self.assertTrue(all(row["run_id"] == "test-live" for row in rows.values()))
+        self.assertIn("Committed 4 spans and 1 events", output.stdout)
+        spans = self.destination.rows["codex_spans"]
+        events = self.destination.rows["codex_events"]
+        self.assertEqual(len(spans), 4)
+        child = next(row for row in spans if row["name"] == "unified_exec.exec_command")
+        self.assertEqual(child["parent_span_id"], "0000000000000003")
+        self.assertEqual(child["duration_ns"], 300000000)
+        self.assertNotEqual(events[0]["trace_id"], spans[0]["trace_id"])
+        self.assertEqual(events[0]["call_id"], "test-call")
+        self.assertIs(events[0]["success"], True)
+        self.assertEqual(events[0]["duration_ms"], 500)
+        self.assertTrue(all(row["run_id"] == "test-live" for row in spans + events))
+        self.assertNotIn("excluded-", json.dumps(self.destination.rows))
 
-    def test_failed_child_is_preserved_even_when_parent_is_unset(self):
-        output = self.replay(failure=True)
+    def test_failed_tool_event_is_visible_with_unset_spans(self):
+        output = self.invoke("--failure-demo")
         self.assertEqual(output.returncode, 0, output.stderr + output.stdout)
-        errors = [row for row in self.destination.rows if row["status"] == "error"]
-        self.assertEqual(
-            [row["name"] for row in errors], ["claude_code.tool.execution"]
+        self.assertIs(self.destination.rows["codex_events"][0]["success"], False)
+        self.assertTrue(
+            all(
+                row["status"] == "unset" for row in self.destination.rows["codex_spans"]
+            )
         )
-        root = next(
-            row
-            for row in self.destination.rows
-            if row["name"] == "claude_code.interaction"
-        )
-        self.assertEqual(root["status"], "unset")
 
-    def test_reused_run_is_rejected_before_receiving_data(self):
-        self.destination.previous = 1
-        output = self.replay()
+    def test_run_labels_are_strings_even_for_yaml_literals(self):
+        for run_id in ("123", "true", "null"):
+            with self.subTest(run_id=run_id):
+                self.environment["SCOPEDB_DEMO_RUN"] = run_id
+                self.destination.rows = {"codex_spans": [], "codex_events": []}
+                output = self.invoke()
+                self.assertEqual(output.returncode, 0, output.stderr + output.stdout)
+                for rows in self.destination.rows.values():
+                    self.assertTrue(rows)
+                    self.assertTrue(all(row["run_id"] == run_id for row in rows))
+
+    def test_missing_events_never_reports_confirmed_delivery(self):
+        output = self.invoke("--prompt", "no-events")
         self.assertNotEqual(output.returncode, 0)
-        self.assertIn("choose a new SCOPEDB_DEMO_RUN", output.stderr)
-        self.assertEqual(self.destination.rows, [])
+        self.assertIn("exported no events", output.stderr)
+        self.assertNotIn("Committed ", output.stdout)
+
+    def test_reused_run_in_either_table_is_rejected(self):
+        for table in ("codex_spans", "codex_events"):
+            with self.subTest(table=table):
+                self.destination.previous_table = table
+                output = self.invoke()
+                self.assertNotEqual(output.returncode, 0)
+                self.assertIn("choose a new SCOPEDB_DEMO_RUN", output.stderr)
+                self.assertFalse(any(self.destination.rows.values()))
 
     def test_rejected_append_never_reports_confirmed_delivery(self):
         self.destination.fail_append = True
-        output = self.replay()
+        output = self.invoke()
         self.assertNotEqual(output.returncode, 0)
         self.assertNotIn("Committed ", output.stdout)
 
-    def test_launcher_waits_for_claude_final_export_and_keeps_credentials_out(self):
-        output = self.invoke("--claude", self.claude_fixture())
-        self.assertEqual(output.returncode, 0, output.stderr + output.stdout)
-        self.assertIn("Committed 7 spans", output.stdout)
-        self.assertEqual(len(self.destination.rows), 7)
-
-    def test_claude_failure_keeps_its_exit_status_after_delivery(self):
-        output = self.invoke("--claude", self.claude_fixture(), "--prompt", "fail-exit")
+    def test_codex_exit_status_is_preserved_after_delivery(self):
+        output = self.invoke("--prompt", "fail-exit")
         self.assertEqual(output.returncode, 3, output.stderr + output.stdout)
-        self.assertIn("Committed 7 spans", output.stdout)
+        self.assertIn("Committed 4 spans and 1 events", output.stdout)
 
     def test_authentication_is_checked_before_creating_tables(self):
-        output = self.invoke("--claude", self.claude_fixture(logged_in=False))
+        output = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "run.py"),
+                "--codex",
+                self.codex_fixture(logged_in=False),
+            ],
+            env=self.environment,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
         self.assertNotEqual(output.returncode, 0)
-        self.assertIn("claude auth login", output.stderr)
+        self.assertIn("codex login", output.stderr)
+        self.assertNotIn(
+            "excluded-authentication-details", output.stderr + output.stdout
+        )
         self.assertEqual(self.destination.requests, [])
 
-    def test_sigint_can_cancel_delivery_wait_after_claude_exits(self):
+    def test_unsupported_cli_fails_before_creating_tables(self):
+        output = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "run.py"),
+                "--codex",
+                self.codex_fixture(version="0.100.0"),
+            ],
+            env=self.environment,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        self.assertNotEqual(output.returncode, 0)
+        self.assertIn("0.160.0 or later", output.stderr)
+        self.assertEqual(self.destination.requests, [])
+
+    def test_no_spans_is_an_error(self):
+        output = self.invoke("--prompt", "no-spans")
+        self.assertNotEqual(output.returncode, 0)
+        self.assertIn("exported no spans", output.stderr)
+        self.assertNotIn("Committed ", output.stdout)
+
+    def test_sigint_can_cancel_delivery_wait_after_codex_exits(self):
         with subprocess.Popen(
             [
                 sys.executable,
                 str(ROOT / "run.py"),
-                "--claude",
-                self.claude_fixture(),
+                "--codex",
+                self.codex_fixture(),
                 "--prompt",
                 "no-spans",
             ],
@@ -347,18 +424,18 @@ sys.exit(3 if 'fail-exit' in sys.argv else 0)
                 output += line
             process.send_signal(signal.SIGINT)
             remaining, errors = process.communicate(timeout=10)
-            output += remaining
-            self.assertEqual(process.returncode, 130, errors + output)
-            self.assertNotIn("Committed ", output)
+            self.assertEqual(process.returncode, 130, errors + output + remaining)
+            self.assertNotIn("Committed ", output + remaining)
 
-    def test_interactive_sigint_keeps_receiver_alive_for_final_spans(self):
+    def test_sigint_keeps_receiver_available_for_final_exports(self):
         process = subprocess.Popen(
             [
                 sys.executable,
                 str(ROOT / "run.py"),
-                "--interactive",
-                "--claude",
-                self.claude_fixture(),
+                "--codex",
+                self.codex_fixture(),
+                "--prompt",
+                "wait-for-signal",
             ],
             env=self.environment,
             stdout=subprocess.PIPE,
@@ -377,7 +454,7 @@ sys.exit(3 if 'fail-exit' in sys.argv else 0)
         reader = threading.Thread(target=read_lines, daemon=True)
         reader.start()
         output = ""
-        while "Fixture Claude waiting" not in output:
+        while "Fixture Codex waiting" not in output:
             line = lines.get(timeout=20)
             self.assertIsNotNone(line)
             output += line
@@ -391,8 +468,9 @@ sys.exit(3 if 'fail-exit' in sys.argv else 0)
         reader.join()
         process.stdout.close()
         process.stderr.close()
-        self.assertIn("Committed 7 spans", output)
-        self.assertEqual(len(self.destination.rows), 7)
+        self.assertIn("Committed 4 spans and 1 events", output)
+        self.assertEqual(len(self.destination.rows["codex_spans"]), 4)
+        self.assertEqual(len(self.destination.rows["codex_events"]), 1)
 
 
 if __name__ == "__main__":

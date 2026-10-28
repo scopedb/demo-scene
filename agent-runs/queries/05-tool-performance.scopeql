@@ -1,0 +1,8 @@
+FROM guide_agents.codex_events
+WHERE run_id = 'agent-first' AND event = 'codex.tool_result'
+GROUP BY tool
+AGGREGATE count() AS calls,
+    sum(if(success = FALSE, 1, 0)) AS failures,
+    sum(duration_ms) AS cumulative_ms,
+    max(duration_ms) AS max_ms
+ORDER BY cumulative_ms DESC, tool

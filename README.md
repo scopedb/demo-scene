@@ -10,9 +10,9 @@ Each scene asks one question and keeps its ScopeQL queries with the runnable int
 | ---------------------------------------------- | ------------------------------------------------------------------- | ----------------------------- | ------------------------------- | ------------------------------- | ------------------------------ |
 | [Application logs](application-logs/README.md) | Which release and payment gateway are producing checkout errors?    | [0.3.0](application-logs/js/) | [0.7.0](application-logs/go/)   | [0.4.2](application-logs/rust/) | —                              |
 | [Bluesky activity](bluesky-events/README.md)   | Are we seeing new posts, replies, or reactions to existing posts?   | —                             | [0.7.0](bluesky-events/main.go) | —                               | —                              |
-| [Agent runs](agent-runs/README.md)             | What did Claude Code do between a prompt and its answer?            | —                             | —                               | —                               | [Telescope 0.3.0](agent-runs/) |
+| [Agent runs](agent-runs/README.md)             | What did Codex do between a prompt and its answer?                  | —                             | —                               | —                               | [Telescope 0.3.0](agent-runs/) |
 
-Event producers keep running until Ctrl+C; the Claude Code example follows a real task and also supports interactive sessions. Scene READMEs cover connection setup, observations, shutdown, and verification. The [ScopeDB tutorials](https://www.scopedb.io/docs/guides#follow-a-complete-example) provide illustrated Console walkthroughs.
+Event producers keep running until Ctrl+C; the Codex example runs a read-only task and waits for confirmed telemetry delivery. Scene READMEs cover connection setup, observations, shutdown, and verification. The [ScopeDB tutorials](https://www.scopedb.io/docs/guides#follow-a-complete-example) provide illustrated Console walkthroughs.
 
 ## Start
 

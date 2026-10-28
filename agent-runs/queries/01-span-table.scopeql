@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS guide_agents.spans (
+CREATE TABLE IF NOT EXISTS guide_agents.codex_spans (
     time timestamp,
     end_time timestamp,
     trace_id string,
@@ -8,5 +8,7 @@ CREATE TABLE IF NOT EXISTS guide_agents.spans (
     status string,
     duration_ns int,
     run_id string,
-    var object
+    model string,
+    tool string,
+    call_id string
 )

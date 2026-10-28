@@ -1,5 +1,0 @@
-FROM guide_agents.spans
-WHERE run_id = 'agent-first'
-AGGREGATE count() AS spans,
-    count_distinct(trace_id) AS traces,
-    sum(if(status = 'error', 1, 0)) AS errors
