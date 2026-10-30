@@ -150,14 +150,20 @@ loop:
 }
 
 func prepare(ctx context.Context, client *scopedb.Client, runID string) error {
-	if _, err := client.Query(ctx, "CREATE SCHEMA IF NOT EXISTS "+schemaName); err != nil {
-		return fmt.Errorf("create schema: %w", err)
-	}
-	ddl := `CREATE TABLE IF NOT EXISTS ` + schemaName + `.` + tableName + ` (
-  time timestamp, service string, level string, message string, var object
-)`
-	if _, err := client.Query(ctx, ddl); err != nil {
-		return fmt.Errorf("create table: %w", err)
+	if _, err := client.Catalog().Schema("scopedb", schemaName).Apply(ctx, &scopedb.CatalogSchema{
+		Name: schemaName,
+		Tables: []scopedb.CatalogTable{{
+			Name: tableName,
+			Columns: []scopedb.CatalogColumn{
+				{Name: "time", DataType: scopedb.TimestampDataType},
+				{Name: "service", DataType: scopedb.StringDataType},
+				{Name: "level", DataType: scopedb.StringDataType},
+				{Name: "message", DataType: scopedb.StringDataType},
+				{Name: "var", DataType: scopedb.ObjectDataType},
+			},
+		}},
+	}); err != nil {
+		return fmt.Errorf("apply catalog schema: %w", err)
 	}
 
 	result, err := client.Query(ctx, fmt.Sprintf(

@@ -1,3 +1,0 @@
-CREATE OR REPLACE VIEW guide_bluesky.events AS
-FROM guide_bluesky.events_raw
-DISTINCT ON capture_id, event_id BY ingested_at DESC

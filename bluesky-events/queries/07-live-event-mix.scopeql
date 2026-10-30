@@ -1,0 +1,6 @@
+FROM guide_bluesky.events
+WHERE capture_id = 'live-first'
+SELECT replace(collection, 'app.bsky.', '') || ' · ' || operation AS event_type
+GROUP BY event_type
+AGGREGATE count() AS events
+ORDER BY events DESC, event_type

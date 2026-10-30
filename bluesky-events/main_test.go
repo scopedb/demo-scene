@@ -265,3 +265,60 @@ func TestInterruptLetsInFlightAppendSettle(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestEnsureSampleAppliesCatalogAndLoadsSample(t *testing.T) {
+	var catalogApplied bool
+	recorder := &appendRecorder{}
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/catalog/databases/scopedb/schemas/guide_bluesky":
+			if r.Method != http.MethodPut {
+				t.Errorf("unexpected catalog method: %s", r.Method)
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			data, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Error(err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			var schema scopedb.CatalogSchema
+			if err := json.Unmarshal(data, &schema); err != nil {
+				t.Error(err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if schema.Name != "guide_bluesky" || len(schema.Tables) != 1 || schema.Tables[0].Name != "events_raw" || len(schema.Views) != 1 || schema.Views[0].Name != "events" {
+				t.Errorf("unexpected catalog schema: %+v", schema)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			catalogApplied = true
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("ETag", `"1"`)
+			fmt.Fprintf(w, `{"before":null,"after":%s,"destructive":false}`, string(data))
+		case "/v1/statements":
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"status":"finished","statement_id":"01989a4e-4ee2-7e63-87a5-65ac3b5161dc","created_at":"2026-10-27T00:00:00Z","progress":{"compute_seconds":0,"total_percentage":100,"nanos_from_submitted":0,"nanos_from_started":0,"total_stages":0,"total_partitions":0,"total_rows":0,"total_compressed_bytes":0,"total_uncompressed_bytes":0,"scanned_stages":0,"scanned_partitions":0,"scanned_rows":0,"scanned_compressed_bytes":0,"scanned_uncompressed_bytes":0,"skipped_partitions":0,"skipped_rows":0,"skipped_compressed_bytes":0,"skipped_uncompressed_bytes":0},"result_set":{"format":"json","metadata":{"fields":[{"name":"events","data_type":"int"}],"num_rows":1},"rows":[["0"]]}}`)
+		default:
+			recorder.handler(t, w, r)
+		}
+	}))
+	defer api.Close()
+	client, err := scopedb.NewClient(scopedb.Config{
+		Endpoint: api.URL, APIKey: "test-key", Compression: scopedb.CompressionGzip, HTTPClient: api.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	table := client.Table("events_raw")
+	table.Schema = "guide_bluesky"
+	if err := ensureSample(t.Context(), client, table); err != nil {
+		t.Fatal(err)
+	}
+	if !catalogApplied || len(recorder.rows) != 16 {
+		t.Fatalf("expected catalog apply and 16 sample rows, got catalogApplied=%v rows=%d", catalogApplied, len(recorder.rows))
+	}
+}

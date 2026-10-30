@@ -11,9 +11,10 @@ Keep the scene self-contained. Use the files and directories it needs, for examp
 ```text
 <scene-name>/
   README.md          Story, setup, walkthrough, expected results, and next steps
+  catalog.json       Declarative schema, table, and view definitions
   .env.example       Connection and configuration placeholders, if needed
   compose.yaml       Supporting services, if needed
-  queries/           ScopeQL setup and investigation statements
+  queries/           Saved ScopeQL investigation statements
   data/              Small, reusable sample inputs
   assets/            Diagrams, screenshots, and dashboard definitions
   js/                JavaScript implementation

@@ -5,5 +5,5 @@ GROUP BY capture_id
 AGGREGATE min(event_time) AS first_seen, max(event_time) AS last_seen,
     count() AS posts,
     sum(if(raw['record']['reply'] IS NOT NULL, 1, 0)) AS replies
-SELECT *, 100.0 * replies / posts AS reply_percent
+SELECT *, round(100.0 * replies / posts, 1) AS reply_percent
 ORDER BY capture_id

@@ -4,7 +4,9 @@ use std::future::Future;
 use std::io::Write;
 use std::time::Duration;
 
-use scopedb_client::Client;
+use scopedb_client::{
+    CatalogColumn, CatalogOptions, CatalogSchema, CatalogTable, Client, DataType,
+};
 use serde_json::json;
 use tokio::time::sleep;
 
@@ -114,14 +116,56 @@ where
 
 async fn prepare(client: &Client, run_id: &str) -> Result<(), Box<dyn Error>> {
     client
-        .query(format!("CREATE SCHEMA IF NOT EXISTS {SCHEMA}"))
-        .await?;
-    client
-        .query(format!(
-            "CREATE TABLE IF NOT EXISTS {SCHEMA}.{TABLE} (
-  time timestamp, service string, level string, message string, var object
-)"
-        ))
+        .catalog()
+        .schema("scopedb", SCHEMA)
+        .apply(
+            &CatalogSchema {
+                name: SCHEMA.to_string(),
+                tables: vec![CatalogTable {
+                    name: TABLE.to_string(),
+                    columns: vec![
+                        CatalogColumn {
+                            name: "time".to_string(),
+                            data_type: DataType::Timestamp,
+                            expression: None,
+                            comment: None,
+                            indexes: Vec::new(),
+                        },
+                        CatalogColumn {
+                            name: "service".to_string(),
+                            data_type: DataType::String,
+                            expression: None,
+                            comment: None,
+                            indexes: Vec::new(),
+                        },
+                        CatalogColumn {
+                            name: "level".to_string(),
+                            data_type: DataType::String,
+                            expression: None,
+                            comment: None,
+                            indexes: Vec::new(),
+                        },
+                        CatalogColumn {
+                            name: "message".to_string(),
+                            data_type: DataType::String,
+                            expression: None,
+                            comment: None,
+                            indexes: Vec::new(),
+                        },
+                        CatalogColumn {
+                            name: "var".to_string(),
+                            data_type: DataType::Object,
+                            expression: None,
+                            comment: None,
+                            indexes: Vec::new(),
+                        },
+                    ],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            CatalogOptions::default(),
+        )
         .await?;
 
     let result = client
@@ -291,19 +335,24 @@ mod tests {
         rows: &Arc<Mutex<Vec<Value>>>,
     ) -> Result<(), Box<dyn Error>> {
         stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-        let (path, compressed) = read_request(stream)?;
-        let body = zstd::stream::decode_all(compressed.as_slice())?;
-        let response = if path == "/v1/statements" {
+        let (method, path, raw_body) = read_request(stream)?;
+        let response = if method == "PUT"
+            && path == "/v1/catalog/databases/scopedb/schemas/guide_logs"
+        {
+            catalog_response(&raw_body)?
+        } else if path == "/v1/statements" {
+            let body = zstd::stream::decode_all(raw_body.as_slice())?;
             statement_response(&body)?
         } else if path == "/v1/catalog/databases/scopedb/schemas/guide_logs/tables/requests/ingest"
         {
+            let body = zstd::stream::decode_all(raw_body.as_slice())?;
             append_response(&body, rows)?
         } else {
-            return Err(format!("unexpected path: {path}").into());
+            return Err(format!("unexpected request: {method} {path}").into());
         };
         write!(
             stream,
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nETag: \"1\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             response.len(),
             response
         )?;
@@ -311,7 +360,7 @@ mod tests {
         Ok(())
     }
 
-    fn read_request(stream: &mut TcpStream) -> Result<(String, Vec<u8>), Box<dyn Error>> {
+    fn read_request(stream: &mut TcpStream) -> Result<(String, String, Vec<u8>), Box<dyn Error>> {
         let mut buffer = Vec::new();
         let mut chunk = [0_u8; 8192];
         let header_end = loop {
@@ -343,19 +392,35 @@ mod tests {
             body.extend_from_slice(&chunk[..read]);
         }
         body.truncate(content_length);
-        let path = headers
+        let mut request_line = headers
             .lines()
             .next()
-            .and_then(|line| line.split_whitespace().nth(1))
-            .unwrap_or("/")
-            .to_string();
-        Ok((path, body))
+            .unwrap_or_default()
+            .split_whitespace();
+        let method = request_line.next().unwrap_or("GET").to_string();
+        let path = request_line.next().unwrap_or("/").to_string();
+        Ok((method, path, body))
+    }
+
+    fn catalog_response(body: &[u8]) -> Result<String, Box<dyn Error>> {
+        let schema: CatalogSchema = serde_json::from_slice(body)?;
+        if schema.name != SCHEMA || schema.tables.len() != 1 || schema.tables[0].name != TABLE {
+            return Err("unexpected catalog schema definition".into());
+        }
+        Ok(json!({
+            "before": null,
+            "after": schema,
+            "destructive": false
+        })
+        .to_string())
     }
 
     fn statement_response(body: &[u8]) -> Result<String, Box<dyn Error>> {
         let input: Value = serde_json::from_slice(body)?;
         let statement = input["statement"].as_str().unwrap_or_default();
-        let count = statement.contains("AGGREGATE count()");
+        if !statement.contains("AGGREGATE count()") {
+            return Err(format!("unexpected statement: {statement}").into());
+        }
         let response = json!({
             "status": "finished",
             "statement_id": "01989a4e-4ee2-7e63-87a5-65ac3b5161dc",
@@ -383,10 +448,10 @@ mod tests {
             "result_set": {
                 "format": "json",
                 "metadata": {
-                    "fields": if count { json!([{"name": "requests", "data_type": "int"}]) } else { json!([]) },
-                    "num_rows": if count { 1 } else { 0 }
+                    "fields": [{"name": "requests", "data_type": "int"}],
+                    "num_rows": 1
                 },
-                "rows": if count { json!([["0"]]) } else { json!([]) }
+                "rows": [["0"]]
             }
         });
         Ok(response.to_string())

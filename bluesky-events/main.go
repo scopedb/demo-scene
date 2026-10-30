@@ -111,9 +111,30 @@ func run(ctx context.Context, args []string) error {
 func ensureSample(ctx context.Context, client *scopedb.Client, table *scopedb.Table) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	if _, err := client.Catalog().Schema("scopedb", "guide_bluesky").Apply(ctx, &scopedb.CatalogSchema{
+		Name: "guide_bluesky",
+		Tables: []scopedb.CatalogTable{{
+			Name: "events_raw",
+			Columns: []scopedb.CatalogColumn{
+				{Name: "capture_id", DataType: scopedb.StringDataType},
+				{Name: "event_id", DataType: scopedb.StringDataType},
+				{Name: "event_time", DataType: scopedb.TimestampDataType},
+				{Name: "ingested_at", DataType: scopedb.TimestampDataType},
+				{Name: "collection", DataType: scopedb.StringDataType},
+				{Name: "operation", DataType: scopedb.StringDataType},
+				{Name: "raw", DataType: scopedb.ObjectDataType},
+			},
+		}},
+		Views: []scopedb.CatalogView{{
+			Name:      "events",
+			Statement: "FROM guide_bluesky.events_raw DISTINCT ON capture_id, event_id BY ingested_at DESC",
+		}},
+	}); err != nil {
+		return fmt.Errorf("apply catalog schema: %w", err)
+	}
 	result, err := client.Query(ctx, "FROM guide_bluesky.events WHERE capture_id = 'first' AGGREGATE count() AS events")
 	if err != nil {
-		return fmt.Errorf("run the three setup statements before starting: %w", err)
+		return fmt.Errorf("query constructed sample: %w", err)
 	}
 	rows, err := result.RawRows()
 	if err != nil || len(rows) != 1 || len(rows[0]) != 1 || rows[0][0] == nil {

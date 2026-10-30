@@ -56,11 +56,11 @@ Keep the terminal running while you use Console. The SDK dispatches buffered log
 
 Open **Query** in the same workspace and run the files in [queries](queries):
 
-1. `02-request-counts.scopeql` checks the complete request population and error count. After a complete cycle, expect at least 12 requests and two errors. Run again after a few seconds to include new arrivals.
-2. `03-gateway-comparison.scopeql` compares releases and gateways. Each completed cycle gives each group three requests. Only release 1.9 with `credit_card` has errors: two per cycle, about 66.7%. A query during a partial delivery can show uneven counts.
-3. `04-failed-requests.scopeql` returns up to ten recent failures. Double-click a `var` cell to inspect its request ID, release, and gateway.
+1. `01-request-counts.scopeql` checks the complete request population and error count. After a complete cycle, expect at least 12 requests and two errors. Run again after a few seconds to include new arrivals.
+2. `02-gateway-comparison.scopeql` compares releases and gateways. Each completed cycle gives each group three requests. Only release 1.9 with `credit_card` has errors: two per cycle, about 66.7%. A query during a partial delivery can show uneven counts.
+3. `03-failed-requests.scopeql` returns up to ten recent failures. Click a `var` cell to inspect its request ID, release, and gateway in **Row details**.
 
-`01-table-definition.scopeql` records the structure the programs create automatically. You do not need to run it separately. The queries filter `checkout-first`; change that filter when using another run ID.
+[catalog.json](catalog.json) records the declarative `guide_logs` schema and `requests` table definition that the programs apply automatically through the Catalog API (or that you can apply ahead of time with `scope catalog apply --schema scopedb.guide_logs -f catalog.json --yes`). The queries filter `checkout-first`; change that filter when using another run ID.
 
 In **Explore**, choose `guide_logs.requests`, include the producer's timestamps in the time range, and filter `var['run_id']::string = 'checkout-first' AND level = 'error'`. Select **Run** again to see new committed errors. Click a record for its details.
 
