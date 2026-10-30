@@ -1,0 +1,23 @@
+{
+  "name": "guide_bluesky",
+  "tables": [
+    {
+      "name": "events_raw",
+      "columns": [
+        { "name": "capture_id", "data_type": "string" },
+        { "name": "event_id", "data_type": "string" },
+        { "name": "event_time", "data_type": "timestamp" },
+        { "name": "ingested_at", "data_type": "timestamp" },
+        { "name": "collection", "data_type": "string" },
+        { "name": "operation", "data_type": "string" },
+        { "name": "raw", "data_type": "object" }
+      ]
+    }
+  ],
+  "views": [
+    {
+      "name": "events",
+      "statement": "FROM guide_bluesky.events_raw DISTINCT ON capture_id, event_id BY ingested_at DESC"
+    }
+  ]
+}

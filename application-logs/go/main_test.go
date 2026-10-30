@@ -46,6 +46,26 @@ func (r *appendRecorder) handler(t *testing.T, w http.ResponseWriter, request *h
 
 	w.Header().Set("Content-Type", "application/json")
 	switch request.URL.Path {
+	case "/v1/catalog/databases/scopedb/schemas/guide_logs":
+		if request.Method != http.MethodPut {
+			t.Errorf("unexpected catalog method: %s", request.Method)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		var schema scopedb.CatalogSchema
+		if err := json.Unmarshal(data, &schema); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if schema.Name != schemaName || len(schema.Tables) != 1 || schema.Tables[0].Name != tableName {
+			t.Errorf("unexpected catalog schema: %+v", schema)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("ETag", `"1"`)
+		fmt.Fprintf(w, `{"before":null,"after":%s,"destructive":false}`, string(data))
+		return
 	case "/v1/statements":
 		var input struct {
 			Statement string `json:"statement"`
@@ -55,10 +75,12 @@ func (r *appendRecorder) handler(t *testing.T, w http.ResponseWriter, request *h
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		fields, rows, numRows := `[]`, `[]`, 0
-		if strings.Contains(input.Statement, "AGGREGATE count()") {
-			fields, rows, numRows = `[{"name":"requests","data_type":"int"}]`, `[["0"]]`, 1
+		if !strings.Contains(input.Statement, "AGGREGATE count()") {
+			t.Errorf("unexpected statement: %s", input.Statement)
+			w.WriteHeader(http.StatusBadRequest)
+			return
 		}
+		fields, rows, numRows := `[{"name":"requests","data_type":"int"}]`, `[["0"]]`, 1
 		fmt.Fprintf(w, `{"status":"finished","statement_id":"01989a4e-4ee2-7e63-87a5-65ac3b5161dc",`+
 			`"created_at":"2026-10-27T00:00:00Z","progress":{"compute_seconds":0,"total_percentage":100,`+
 			`"nanos_from_submitted":0,"nanos_from_started":0,"total_stages":0,"total_partitions":0,`+

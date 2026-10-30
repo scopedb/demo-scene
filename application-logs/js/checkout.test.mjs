@@ -16,17 +16,26 @@ async function exercise(t, args, stopAfterAppend = false) {
     const body = Buffer.concat(chunks);
     const text = (request.headers["content-encoding"] === "gzip" ? gunzipSync(body) : body).toString();
     response.setHeader("Content-Type", "application/json");
+    if (request.method === "PUT" && request.url === "/v1/catalog/databases/scopedb/schemas/guide_logs") {
+      const schema = JSON.parse(text);
+      assert.equal(schema.name, "guide_logs");
+      assert.equal(schema.tables?.length, 1);
+      assert.equal(schema.tables[0].name, "requests");
+      response.setHeader("ETag", '"1"');
+      response.end(JSON.stringify({ before: null, after: schema, destructive: false }));
+      return;
+    }
     if (request.url === "/v1/statements") {
       const input = JSON.parse(text);
-      const count = input.statement.includes("AGGREGATE count()");
+      assert.ok(input.statement.includes("AGGREGATE count()"), `unexpected statement: ${input.statement}`);
       response.end(JSON.stringify({
         status: "finished", statement_id: input.statement_id ?? randomUUID(),
         created_at: "2026-10-27T00:00:00Z",
         progress: Object.fromEntries(["compute_seconds", "total_percentage", "nanos_from_submitted", "nanos_from_started", "total_stages", "total_partitions", "total_rows", "total_compressed_bytes", "total_uncompressed_bytes", "scanned_stages", "scanned_partitions", "scanned_rows", "scanned_compressed_bytes", "scanned_uncompressed_bytes", "skipped_partitions", "skipped_rows", "skipped_compressed_bytes", "skipped_uncompressed_bytes"].map(field => [field, 0])),
         result_set: { format: "json", metadata: {
-          fields: count ? [{ name: "requests", data_type: "int" }] : [],
-          num_rows: count ? 1 : 0,
-        }, rows: count ? [["0"]] : [] },
+          fields: [{ name: "requests", data_type: "int" }],
+          num_rows: 1,
+        }, rows: [["0"]] },
       }));
       return;
     }

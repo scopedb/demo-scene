@@ -1,0 +1,10 @@
+FROM guide_bluesky.events
+WHERE capture_id = 'live-first' AND raw['did'] IS NOT NULL
+SELECT replace(collection, 'app.bsky.', '') || '.' || operation AS kind, raw['did']::string AS did
+GROUP BY did
+AGGREGATE count() AS events,
+    sum(if(kind = 'graph.follow.create', 1, 0)) AS follows,
+    sum(if(kind = 'feed.like.create', 1, 0)) AS likes,
+    sum(if(kind = 'feed.post.create', 1, 0)) AS posts,
+    sum(if(kind = 'graph.follow.delete', 1, 0)) AS unfollows
+ORDER BY events DESC LIMIT 5

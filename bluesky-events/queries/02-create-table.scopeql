@@ -1,9 +1,0 @@
-CREATE TABLE IF NOT EXISTS guide_bluesky.events_raw (
-    capture_id string,
-    event_id string,
-    event_time timestamp,
-    ingested_at timestamp,
-    collection string,
-    operation string,
-    raw object
-)

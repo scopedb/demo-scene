@@ -19,10 +19,21 @@ if (!/^[a-zA-Z0-9-]{1,100}$/.test(runId)) {
   throw new Error("SCOPEDB_DEMO_RUN must contain 1–100 letters, digits, or hyphens");
 }
 const client = new Client(endpoint, { apiKey });
-await client.query("CREATE SCHEMA IF NOT EXISTS guide_logs");
-await client.query(`CREATE TABLE IF NOT EXISTS guide_logs.requests (
-  time timestamp, service string, level string, message string, var object
-)`);
+await client.catalog().schema("scopedb", "guide_logs").apply({
+  name: "guide_logs",
+  tables: [
+    {
+      name: "requests",
+      columns: [
+        { name: "time", data_type: "timestamp" },
+        { name: "service", data_type: "string" },
+        { name: "level", data_type: "string" },
+        { name: "message", data_type: "string" },
+        { name: "var", data_type: "object" },
+      ],
+    },
+  ],
+});
 const previous = await client.query(`FROM guide_logs.requests
   WHERE var['run_id']::string = '${runId}' AGGREGATE count() AS requests`);
 if (previous.toObjects()[0].requests > 0) {

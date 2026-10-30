@@ -5,5 +5,5 @@ SELECT level, var['release']::string AS release,
 GROUP BY release, gateway
 AGGREGATE count() AS requests,
     sum(if(level = 'error', 1, 0)) AS errors
-SELECT *, 100.0 * errors / requests AS error_percent
+SELECT *, round(100.0 * errors / requests, 1) AS error_percent
 ORDER BY release, gateway

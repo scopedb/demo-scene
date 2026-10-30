@@ -1,7 +1,0 @@
-CREATE TABLE guide_logs.requests (
-    time timestamp,
-    service string,
-    level string,
-    message string,
-    var object
-)
