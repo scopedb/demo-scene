@@ -1,0 +1,5 @@
+FROM guide_vercel.v_vercel_ai_bots
+WHERE run_id = 'vercel-first'
+GROUP BY path, user_agent
+AGGREGATE count() AS fetches
+ORDER BY fetches DESC, path ASC

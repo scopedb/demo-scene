@@ -1,0 +1,6 @@
+FROM guide_vercel.vercel_events
+WHERE attributes['run_id']::string = 'vercel-first'
+GROUP BY event_type
+AGGREGATE count() AS events,
+    sum(if(level = 'error', 1, 0)) AS errors
+ORDER BY events DESC, event_type ASC

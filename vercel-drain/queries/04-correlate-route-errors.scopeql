@@ -1,0 +1,5 @@
+FROM guide_vercel.v_vercel_errors
+WHERE run_id = 'vercel-first'
+SELECT occurred_at, event_type, status, path, request_id, trace_id, message
+ORDER BY occurred_at DESC, event_type ASC
+LIMIT 10

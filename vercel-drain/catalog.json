@@ -1,0 +1,47 @@
+{
+  "name": "guide_vercel",
+  "tables": [
+    {
+      "name": "vercel_events",
+      "comment": "Vercel Drain logs, HTTP requests, Web Analytics pageviews/events, Speed Insights vitals, and application events",
+      "columns": [
+        { "name": "event_id", "data_type": "string", "comment": "Unique row identifier" },
+        { "name": "occurred_at", "data_type": "timestamp", "comment": "Event timestamp in UTC" },
+        { "name": "service", "data_type": "string", "comment": "Vercel project name, project ID, or service identifier" },
+        { "name": "event_type", "data_type": "string", "comment": "vercel.request, vercel.log, vercel.pageview, vercel.custom_event, or vercel.web_vital" },
+        { "name": "outcome", "data_type": "string", "comment": "Execution or HTTP outcome (ok, client_error, error)" },
+        { "name": "level", "data_type": "string", "comment": "Normalized severity (debug, info, warn, error)" },
+        { "name": "method", "data_type": "string", "comment": "HTTP request method when applicable" },
+        { "name": "host", "data_type": "string", "comment": "Request or deployment URL hostname" },
+        { "name": "path", "data_type": "string", "comment": "Request URL pathname without query parameters" },
+        { "name": "status", "data_type": "int", "comment": "HTTP response status code" },
+        { "name": "request_id", "data_type": "string", "comment": "Vercel request ID (x-vercel-id) or drain record ID" },
+        { "name": "message", "data_type": "string", "comment": "Human-readable request summary, runtime log line, custom event name, or Web Vital summary" },
+        { "name": "attributes", "data_type": "object", "comment": "Structured Vercel deployment, edge cache, geography, attribution, trace, or Web Vital metadata" }
+      ],
+      "cluster_by": ["service", "occurred_at"]
+    }
+  ],
+  "views": [
+    {
+      "name": "v_vercel_requests",
+      "comment": "Flattened Vercel HTTP request, edge cache, function execution, and trace metrics",
+      "statement": "FROM scopedb.guide_vercel.vercel_events\nWHERE event_type = 'vercel.request'\nSELECT\n    occurred_at,\n    service,\n    outcome,\n    level,\n    method,\n    host,\n    path,\n    status,\n    request_id,\n    message,\n    attributes['run_id']::string AS run_id,\n    attributes['project_id']::string AS project_id,\n    attributes['deployment_id']::string AS deployment_id,\n    attributes['environment']::string AS environment,\n    attributes['branch']::string AS branch,\n    attributes['source']::string AS source,\n    attributes['route']::string AS route,\n    attributes['entrypoint']::string AS entrypoint,\n    attributes['region']::string AS region,\n    attributes['execution_region']::string AS execution_region,\n    attributes['vercel_cache']::string AS vercel_cache,\n    attributes['duration_ms']::float AS duration_ms,\n    attributes['trace_id']::string AS trace_id,\n    attributes['span_id']::string AS span_id,\n    attributes['user_agent']::string AS user_agent,\n    attributes['referer_host']::string AS referer_host,\n    attributes['referer_path']::string AS referer_path,\n    attributes['utm_source']::string AS utm_source,\n    attributes['utm_medium']::string AS utm_medium,\n    attributes['utm_campaign']::string AS utm_campaign,\n    attributes['utm_term']::string AS utm_term,\n    attributes['utm_content']::string AS utm_content,\n    attributes['ref']::string AS ref,\n    attributes['query'] AS query"
+    },
+    {
+      "name": "v_vercel_pageviews",
+      "comment": "Clean browser pageviews across Vercel Web Analytics Drains and HTTP request logs, excluding bots, API routes, and static assets",
+      "statement": "FROM scopedb.guide_vercel.vercel_events\nWHERE event_type = 'vercel.pageview' OR (event_type = 'vercel.request' AND method = 'GET' AND status = 200)\nSELECT\n    occurred_at,\n    service,\n    event_type,\n    host,\n    path,\n    status,\n    attributes['run_id']::string AS run_id,\n    attributes['environment']::string AS environment,\n    attributes['route']::string AS route,\n    attributes['country']::string AS country,\n    attributes['region']::string AS region,\n    attributes['city']::string AS city,\n    attributes['device_type']::string AS device_type,\n    attributes['os_name']::string AS os_name,\n    attributes['client_name']::string AS client_name,\n    if(\n        attributes['referer_host']::string = host\n            OR attributes['referer_host']::string = concat('www.', host)\n            OR concat('www.', attributes['referer_host']::string) = host,\n        NULL,\n        attributes['referer_host']::string\n    ) AS referer_host,\n    if(\n        attributes['referer_host']::string = host\n            OR attributes['referer_host']::string = concat('www.', host)\n            OR concat('www.', attributes['referer_host']::string) = host,\n        NULL,\n        attributes['referer_path']::string\n    ) AS referer_path,\n    attributes['utm_source']::string AS utm_source,\n    attributes['utm_medium']::string AS utm_medium,\n    attributes['utm_campaign']::string AS utm_campaign,\n    attributes['utm_term']::string AS utm_term,\n    attributes['utm_content']::string AS utm_content,\n    attributes['ref']::string AS ref,\n    attributes['query'] AS query,\n    attributes['user_agent']::string AS user_agent\nWHERE path IS NOT NULL\n  AND NOT starts_with(path, '/api/')\n  AND NOT starts_with(path, '/_next/')\n  AND NOT starts_with(path, '/_vercel/')\n  AND NOT starts_with(path, '/.')\n  AND NOT regexp_like(path, regex => '(?i)[.](md|txt|xml|ico|svg|png|jpg|jpeg|webp|gif|css|js|map|json|woff2?)$')\n  AND (user_agent IS NULL OR NOT regexp_like(user_agent, regex => '(?i)(bot|crawler|spider|slurp|facebookexternalhit|feedbin|pingwatch|uptime|statuscake|cortex-xpanse|paloaltonetworks|censys|shodan|zgrab|curl|wget|python|go-http-client|axios|node-fetch|undici|okhttp|headless|Claude-User|Cursor|Codex)'))"
+    },
+    {
+      "name": "v_vercel_errors",
+      "comment": "Vercel 5xx HTTP responses, runtime error logs, and failed outcomes",
+      "statement": "FROM scopedb.guide_vercel.vercel_events\nWHERE level = 'error' OR outcome = 'error' OR (status IS NOT NULL AND status >= 500)\nSELECT\n    occurred_at,\n    service,\n    event_type,\n    outcome,\n    level,\n    method,\n    host,\n    path,\n    status,\n    request_id,\n    message,\n    attributes['run_id']::string AS run_id,\n    attributes['deployment_id']::string AS deployment_id,\n    attributes['environment']::string AS environment,\n    attributes['source']::string AS source,\n    attributes['trace_id']::string AS trace_id,\n    attributes['span_id']::string AS span_id,\n    attributes"
+    },
+    {
+      "name": "v_vercel_ai_bots",
+      "comment": "Vercel HTTP requests from AI crawlers, coding agents, and Markdown/llms.txt readers",
+      "statement": "FROM scopedb.guide_vercel.vercel_events\nWHERE event_type = 'vercel.request'\nSELECT\n    occurred_at,\n    service,\n    outcome,\n    method,\n    host,\n    path,\n    status,\n    request_id,\n    attributes['run_id']::string AS run_id,\n    attributes['environment']::string AS environment,\n    attributes['region']::string AS region,\n    attributes['vercel_cache']::string AS vercel_cache,\n    attributes['user_agent']::string AS user_agent,\n    attributes['referer_host']::string AS referer_host\nWHERE path = '/llms.txt'\n   OR ends_with(path, '.md')\n   OR regexp_like(user_agent, regex => '(?i)(ClaudeBot|Claude-Web|Claude-User|Anthropic|GPTBot|ChatGPT-User|OAI-SearchBot|Codex|Cursor|PerplexityBot|Perplexity-User|CCBot|Google-Extended|Applebot-Extended|Bytespider|Amazonbot|cohere-ai|YouBot)')"
+    }
+  ]
+}

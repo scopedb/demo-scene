@@ -1,0 +1,5 @@
+FROM guide_vercel.v_vercel_pageviews
+WHERE run_id = 'vercel-first'
+GROUP BY path, referer_host, utm_source
+AGGREGATE count() AS pageviews
+ORDER BY pageviews DESC, path ASC
