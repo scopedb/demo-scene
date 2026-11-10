@@ -84,6 +84,12 @@ test("multiple cycles normalize signed Vercel Drain batches and Next.js after() 
   const errors = rows.filter(row => row.level === "error");
   assert.equal(errors.length, 4);
   assert.ok(errors.every(row => row.path === "/api/chat" && row.attributes.trace_id === "4bf92f3577b34da6a3ce929d0e0e4736"));
+  assert.deepEqual(rows[0].attributes.query, {
+    utm_source: ["github"],
+    utm_medium: ["readme"],
+    ref: ["oss"],
+    tag: ["edge", "drain"],
+  });
 });
 
 test("the default producer keeps running and flushes on Ctrl+C", async t => {

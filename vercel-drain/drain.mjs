@@ -40,23 +40,68 @@ const stream = client
 let sequence = 0;
 let sentRows = 0;
 
-function extractUrlMetadata(rawUrl) {
+function isSensitiveToken(token) {
+  const compact = token.replace(/[+_-]/g, "");
+  if (/^[a-fA-F0-9]{32,}$/.test(compact)) return true;
+  if (
+    token.length >= 21 &&
+    (token.match(/[A-Z]/g)?.length ?? 0) >= 2 &&
+    (token.match(/[a-z]/g)?.length ?? 0) >= 2 &&
+    (token.match(/[0-9]/g)?.length ?? 0) >= 2
+  ) {
+    return true;
+  }
+  if (!/^\d{13,19}$/.test(compact)) return false;
+  let sum = 0;
+  for (let i = compact.length - 1; i >= 0; i--) {
+    let digit = Number(compact[i]);
+    if ((compact.length - 1 - i) % 2 === 1) digit *= 2;
+    sum += digit > 9 ? digit - 9 : digit;
+  }
+  return sum % 10 === 0;
+}
+
+function redactTokens(value) {
+  return value.replace(/[a-zA-Z0-9+_-]+/g, token =>
+    isSensitiveToken(token) ||
+    isSensitiveToken(token.replace(/^[a-zA-Z]+[_-]/, "")) ||
+    token.split(/[_-]/).some(isSensitiveToken)
+      ? "REDACTED"
+      : token,
+  );
+}
+
+function extractUrlMetadata(rawUrl, captureQuery = true) {
   if (typeof rawUrl !== "string" || rawUrl.length === 0) {
-    return { host: null, path: null, query: {}, attribution: {} };
+    return { host: null, path: null, query: {} };
   }
   const parsed = new URL(rawUrl);
+  const path = parsed.pathname
+    .split("/")
+    .map(segment => {
+      try {
+        const decoded = decodeURIComponent(segment);
+        return redactTokens(decoded) === decoded ? segment : "REDACTED";
+      } catch {
+        return "REDACTED";
+      }
+    })
+    .join("/")
+    .slice(0, 2048);
+
+  if (!captureQuery) {
+    return { host: parsed.hostname || null, path: path || null, query: {} };
+  }
+  const query = new Map();
+  for (const [key, value] of parsed.searchParams) {
+    const values = query.get(key) ?? [];
+    values.push(value);
+    query.set(key, values);
+  }
   return {
     host: parsed.hostname || null,
-    path: parsed.pathname || null,
-    query: Object.fromEntries(parsed.searchParams),
-    attribution: {
-      utm_source: parsed.searchParams.get("utm_source"),
-      utm_medium: parsed.searchParams.get("utm_medium"),
-      utm_campaign: parsed.searchParams.get("utm_campaign"),
-      utm_term: parsed.searchParams.get("utm_term"),
-      utm_content: parsed.searchParams.get("utm_content"),
-      ref: parsed.searchParams.get("ref"),
-    },
+    path: path || null,
+    query: Object.fromEntries(query),
   };
 }
 
@@ -65,7 +110,7 @@ function normalizeDrainItem(item) {
   const service = item.projectName ?? "acme-docs";
   if (item.schema === "vercel.analytics.v2") {
     const target = extractUrlMetadata(`${item.origin}${item.path}${item.queryParams ? `?${item.queryParams}` : ""}`);
-    const referer = extractUrlMetadata(item.referrer);
+    const referer = extractUrlMetadata(item.referrer, false);
     return [
       {
         event_id: randomUUID(),
@@ -96,13 +141,12 @@ function normalizeDrainItem(item) {
           referer_host: referer.host,
           referer_path: referer.path,
           query: target.query,
-          ...target.attribution,
         },
       },
     ];
   }
   if (item.schema === "vercel.speed_insights.v1") {
-    const target = extractUrlMetadata(`${item.origin}${item.path}`);
+    const target = extractUrlMetadata(`${item.origin}${item.path}`, false);
     return [
       {
         event_id: randomUUID(),
@@ -135,7 +179,7 @@ function normalizeDrainItem(item) {
   }
   const proxy = item.proxy ?? {};
   const target = extractUrlMetadata(`https://${proxy.host}${proxy.path}`);
-  const referer = extractUrlMetadata(proxy.referer);
+  const referer = extractUrlMetadata(proxy.referer, false);
   const status = proxy.statusCode;
   const traceMatch = /^00-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$/i.exec(item.traceparent ?? "");
   const baseAttributes = {
@@ -157,7 +201,6 @@ function normalizeDrainItem(item) {
     referer_host: referer.host,
     referer_path: referer.path,
     query: target.query,
-    ...target.attribution,
   };
   const rows = [
     {
@@ -218,13 +261,13 @@ async function emitCycle(cycleIndex) {
   const browserUa = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36"];
 
   const drainBatch = [
-    // 3 human browser HTTP GET 200 pageviews
+    // 3 human browser HTTP GET 200 document requests
     {
       id: randomUUID(), timestamp: now, projectId: "prj_acme", projectName: "acme-docs",
       deploymentId: "dpl_prod_1", environment: "production", branch: "main", source: "edge",
       entrypoint: "/", requestId: nextReqId(), durationMs: 14.2,
       proxy: {
-        method: "GET", host: "docs.acme.dev", path: "/?utm_source=github&utm_medium=readme&ref=oss",
+        method: "GET", host: "docs.acme.dev", path: "/?utm_source=github&utm_medium=readme&ref=oss&tag=edge&tag=drain",
         statusCode: 200, region: "sfo1", vercelCache: "HIT",
         referer: "https://github.com/scopedb/vercel-drain", userAgent: browserUa,
       },
@@ -234,7 +277,7 @@ async function emitCycle(cycleIndex) {
       deploymentId: "dpl_prod_1", environment: "production", branch: "main", source: "edge",
       entrypoint: "/docs/quickstart", requestId: nextReqId(), durationMs: 18.6,
       proxy: {
-        method: "GET", host: "docs.acme.dev", path: "/docs/quickstart?tenant=acme",
+        method: "GET", host: "docs.acme.dev", path: "/docs/quickstart?plan=team&plan=free",
         statusCode: 200, region: "sfo1", vercelCache: "HIT",
         referer: "https://t.co/launch", userAgent: browserUa,
       },
@@ -249,13 +292,13 @@ async function emitCycle(cycleIndex) {
         referer: "https://docs.acme.dev/docs/quickstart", userAgent: browserUa,
       },
     },
-    // 1 Web Analytics Drain browser pageview
+    // 1 Web Analytics Drain client-reported pageview
     {
       schema: "vercel.analytics.v2", eventType: "pageview", timestamp: now + 15,
       projectId: "prj_acme", projectName: "acme-docs", deployment: "dpl_prod_1",
       vercelEnvironment: "production", sessionId: 1000 + cycleIndex,
       origin: "https://docs.acme.dev", path: "/blog/launch", route: "/blog/[slug]",
-      queryParams: "utm_source=x&utm_campaign=launch&tenant=acme",
+      queryParams: "utm_source=x&utm_campaign=launch&plan=team",
       referrer: "https://t.co/launch", country: "US", region: "CA", city: "San Francisco",
       deviceType: "desktop", osName: "Mac OS", clientName: "Chrome",
     },
@@ -278,7 +321,7 @@ async function emitCycle(cycleIndex) {
         statusCode: 200, region: "iad1", vercelCache: "MISS", userAgent: ["kube-probe/1.30"],
       },
     },
-    // 2 AI agent / crawler fetches (captured by v_vercel_ai_bots, excluded from v_vercel_pageviews)
+    // 2 AI agent / crawler fetches (captured by v_vercel_ai_bots with separate identity & content flags)
     {
       id: randomUUID(), timestamp: now + 30, projectId: "prj_acme", projectName: "acme-docs",
       deploymentId: "dpl_prod_1", environment: "production", branch: "main", source: "edge",
@@ -307,7 +350,7 @@ async function emitCycle(cycleIndex) {
       entrypoint: "/api/chat", executionRegion: "iad1", requestId: nextReqId(), durationMs: 10004.5,
       traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
       proxy: {
-        method: "POST", host: "docs.acme.dev", path: "/api/chat?tenant=acme",
+        method: "POST", host: "docs.acme.dev", path: "/api/chat?plan=team",
         statusCode: 504, region: "sfo1", vercelCache: "MISS", userAgent: browserUa,
       },
     },

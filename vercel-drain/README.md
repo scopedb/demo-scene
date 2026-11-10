@@ -28,8 +28,8 @@ On startup, `drain.mjs` applies [catalog.json](catalog.json) through the Catalog
 Open **Query** in the same workspace and run the files in [queries](queries):
 
 1. `01-event-breakdown.scopeql` counts rows by `event_type` and error count. After one completed cycle, expect 12 total rows: eight `vercel.request` rows (one error), one `vercel.log` row (one error), one `vercel.pageview` row, one `vercel.web_vital` row, and one `vercel.custom_event` row.
-2. `02-clean-pageviews.scopeql` queries `guide_vercel.v_vercel_pageviews` to rank human browser pageviews (`/`, `/docs/quickstart`, `/pricing`, `/blog/launch`) alongside normalized external referrers (`github.com`, `t.co`) and `utm_source` attribution, while excluding `/_next/static/*`, `/api/*`, and AI crawlers.
-3. `03-ai-bot-readership.scopeql` queries `guide_vercel.v_vercel_ai_bots` to inspect `ClaudeBot/1.0` fetching `/llms.txt` and `Cursor/1.0` fetching `/docs/quickstart.md`.
+2. `02-clean-pageviews.scopeql` queries `guide_vercel.v_vercel_pageviews` to rank browser pageviews and document requests (`/`, `/docs/quickstart`, `/pricing`, `/blog/launch`) alongside normalized external referrers (`github.com`, `t.co`) and `utm_source` attribution (`attributes['query']['utm_source'][0]::string`), while excluding `/_next/static/*`, `/api/*`, and AI crawlers.
+3. `03-ai-bot-readership.scopeql` queries `guide_vercel.v_vercel_ai_bots` to inspect `ClaudeBot/1.0` fetching `/llms.txt` and `Cursor/1.0` fetching `/docs/quickstart.md` alongside separate `is_ai_user_agent` and `is_markdown_request` flags.
 4. `04-correlate-route-errors.scopeql` queries `guide_vercel.v_vercel_errors` to correlate the `504` HTTP request on `/api/chat` with its runtime `Unhandled rejection: upstream model timeout` log line via `request_id` and W3C `trace_id` (`4bf92f3577b34da6a3ce929d0e0e4736`).
 
 [catalog.json](catalog.json) records the declarative `guide_vercel` schema, table, and views that `drain.mjs` applies automatically (or that you can apply ahead of time with `scope catalog apply --schema scopedb.guide_vercel -f catalog.json --yes`). The queries filter `vercel-first`; change that filter when using another run ID.
